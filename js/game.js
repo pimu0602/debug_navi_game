@@ -1055,21 +1055,53 @@ for (const n of NETS) {
 // Stage1の導通チェック測定シーケンス(同一線番→異線番短絡→対E)
 function stage1MeasureSequence() {
   const seq = [];
-  for (const n of NETS) seq.push({ a: n.id + ".b", b: n.id + ".k", kind: "same", net: n.id });
-  for (const p of S1_SHORT_PAIRS) seq.push({ a: p[0] + ".b", b: p[1] + ".b", kind: "short" });
-  for (const p of S1_E_PAIRS) seq.push({ a: p[0] + ".b", b: p[1] + ".b", kind: "e" });
+  for (const n of NETS) seq.push({ a: n.id + ".b", b: n.id + ".k", kind: "same", net: n.id, range: "ohm" });
+  for (const p of S1_SHORT_PAIRS) seq.push({ a: p[0] + ".b", b: p[1] + ".b", kind: "short", range: "ohm" });
+  for (const p of S1_E_PAIRS) seq.push({ a: p[0] + ".b", b: p[1] + ".b", kind: "e", range: "ohm" });
   return seq;
+}
+// Stage1の無電圧確認シーケンス(主回路の三相相間・盤側)
+function stage1NoVoltSequence() {
+  return NOVOLT_PAIRS.map(p => ({ a: p.a + ".b", b: p.b + ".b", kind: "novolt", range: "vac" }));
+}
+// Stage2の電圧実測シーケンス(系統ごと。三相はどれか1組でOK)
+function stage2VoltSequence() {
+  const seq = [];
+  for (const g of S2_VOLT_GROUPS) {
+    const gate = g.id === "AC100V" ? "CP1" : g.id === "DC24V" ? "CP2" : null;
+    if (gate && G.quarantined[gate]) continue;       // 異常で使用中止の系統は測らない
+    const [n1, n2] = g.pairs[0].split("-");
+    seq.push({
+      a: n1 + ".b", b: n2 + ".b", kind: "volt", group: g.id, label: g.label,
+      range: g.id === "DC24V" ? "vdc" : "vac", gate
+    });
+  }
+  return seq;
+}
+// 今のステージで「次に測るべき箇所」の並び
+function measureSequence() {
+  if (!G) return [];
+  if (G.stageId === "stage1") {
+    return stage1NoVoltDone() ? stage1MeasureSequence() : stage1NoVoltSequence();
+  }
+  if (G.stageId === "stage2") return stage2VoltSequence();
+  return [];
 }
 function pairMeasured(item) {
   const ta = terminalById(item.a), tb = terminalById(item.b);
   if (item.kind === "same") return G.contDone.has(ta.net);
   if (item.kind === "short") return G.shortDone.has(pairKey(ta.net, tb.net));
   if (item.kind === "e") return G.eDone.has(pairKey(ta.net, tb.net));
+  if (item.kind === "novolt") return !!G.noVolt[pairKey(ta.net, tb.net)];
+  if (item.kind === "volt") {
+    const g = S2_VOLT_GROUPS.find(x => x.id === item.group);
+    return g ? g.pairs.some(k => G.voltDone.has(k)) : false;
+  }
   return false;
 }
 // 次にまだ測っていないペアを返す
 function nextUnmeasuredPair() {
-  return stage1MeasureSequence().find(item => !pairMeasured(item)) || null;
+  return measureSequence().find(item => !pairMeasured(item)) || null;
 }
 // CP ONで回り込みの抵抗値を見たが、まだCP OFFでの再確認(Step10)をしていないペア
 function pendingMawariPair() {
@@ -1088,33 +1120,43 @@ function setProbes(aId, bId) {
 }
 // 測定後に次のペアをプルダウンへ自動セット(案2:自動送り)
 function advanceProbes() {
-  if (G.stageId !== "stage1" || G.range !== "ohm") return;
   const next = nextUnmeasuredPair();
-  if (next) setProbes(next.a, next.b);
+  if (next) {
+    setProbes(next.a, next.b);
+    if (next.range && next.range !== G.range) setRange(next.range); // レンジも合わせる
+  }
   updateTesterAuto();
+}
+// 測定シーケンスの見出し(いま何の工程を測っているか)
+function measurePhaseLabel() {
+  if (G.stageId === "stage1") return stage1NoVoltDone() ? "導通チェック" : "無電圧確認";
+  if (G.stageId === "stage2") return "電圧の実測";
+  return "測定";
 }
 // おまかせボタン等の表示更新
 function updateTesterAuto() {
   const area = $("#auto-area");
   const guide = $("#tester-guide");
   if (!area) return;
-  if (G.stageId !== "stage1") { area.innerHTML = ""; guide.innerHTML = ""; return; }
-  const seq = stage1MeasureSequence();
+  const seq = measureSequence();
+  if (!seq.length) { area.innerHTML = ""; guide.innerHTML = ""; return; }
   const done = seq.filter(pairMeasured).length;
-  const pending = pendingMawariPair();
+  const pending = G.stageId === "stage1" ? pendingMawariPair() : null;
   const next = nextUnmeasuredPair();
   if (pending) {
     const cpNowOff = !G.cps[pending.viaCp];
     guide.innerHTML = cpNowOff
       ? `<span class="sub" style="color:#e0c060">「${esc(terminalById(pending.a).label)}」と「${esc(terminalById(pending.b).label)}」を、もう一度当ててみよう。${pending.viaCp}をOFFにしたので抵抗値が消えるはずだ(Step10)。</span>`
       : `<span class="sub" style="color:#e0c060">回り込みの確認が済んでいない。${pending.viaCp}をOFFにしてから、もう一度「${esc(terminalById(pending.a).label)}」と「${esc(terminalById(pending.b).label)}」を当てよう(Step10)。</span>`;
+  } else if (next) {
+    const rangeName = next.range === "vac" ? "AC電圧(V~)" : next.range === "vdc" ? "DC電圧(V⎓)" : "抵抗(Ω)";
+    const extra = next.gate && !G.cps[next.gate] ? ` <span style="color:#e0c060">※${next.gate}がONでないと測れない</span>` : "";
+    guide.innerHTML = `<span class="sub">${measurePhaseLabel()} ${done}/${seq.length} — 次に当てる:<b>${esc(terminalById(next.a).label)}</b> と <b>${esc(terminalById(next.b).label)}</b>(レンジ:${rangeName})${extra}</span>`;
   } else {
-    guide.innerHTML = next
-      ? `<span class="sub">導通チェック ${done}/${seq.length} — 次に当てる:<b>${esc(terminalById(next.a).label)}</b> と <b>${esc(terminalById(next.b).label)}</b></span>`
-      : `<span class="sub">導通チェックの測定はすべて完了 ✓</span>`;
+    guide.innerHTML = `<span class="sub">${measurePhaseLabel()}の測定はすべて完了 ✓</span>`;
   }
-  // 無電圧確認後、同一線番を3本以上測って要領を掴んだら「おまかせ」を出す
-  const canAuto = stage1NoVoltDone() && G.contDone.size >= 3 && next;
+  // 無電圧確認後、同一線番を3本以上測って要領を掴んだら「おまかせ」を出す(Stage1の導通チェックのみ)
+  const canAuto = G.stageId === "stage1" && stage1NoVoltDone() && G.contDone.size >= 3 && next;
   area.innerHTML = canAuto
     ? `<button id="btn-auto" class="small">残りを同じ要領で確認する(おまかせ)</button>
        <span class="hint-small">※異常が出たら手が止まる。判断と記録は自分でやる。</span>`
@@ -1188,12 +1230,13 @@ function openTester() {
   setRange(G.range || "ohm");
   $("#tester-result").innerHTML = `<span class="sub">レンジを選び、2点を選んで[測定]</span>`;
   $("#anomaly-area").innerHTML = "";
-  // Stage1では次に当てるペアを最初からセットしておく
+  // 次に当てるペアを最初からセットしておく(全ステージ共通)
   // (CPを切りに行って戻ってきた場合、確認待ちの回り込みペアを優先して呼び戻す)
-  if (G.stageId === "stage1" && (G.range || "ohm") === "ohm") {
-    const pending = pendingMawariPair();
-    const next = pending || nextUnmeasuredPair();
-    if (next) setProbes(next.a, next.b);
+  const pending = G.stageId === "stage1" ? pendingMawariPair() : null;
+  const next = pending || nextUnmeasuredPair();
+  if (next) {
+    setProbes(next.a, next.b);
+    if (!pending && next.range) setRange(next.range);
   }
   updateTesterAuto();
   openModal("modal-tester");
@@ -1244,7 +1287,9 @@ function doMeasure() {
     return;
   }
   measureVolt(a, b, range, out, anomalyArea);
-  updateTesterAuto();
+  // 電圧測定も、うまく測れたら次の箇所へ自動送り
+  if (!G.pendingAnomaly) advanceProbes();
+  else updateTesterAuto();
 }
 
 // Ωレンジの結果を決める
@@ -1421,7 +1466,17 @@ function recordAnomaly() {
 const NOVOLT_PAIRS = [
   { a: "R", b: "S", ac: true }, { a: "S", b: "T", ac: true }, { a: "R", b: "T", ac: true }
 ];
-const VOLT_EXPECT = { "R-S": { v: "202V", ac: true }, "L-N": { v: "101V", ac: true }, "0V-P": { v: "24.1V", ac: false } };
+// 通電中に測れる電圧(三相なのでR-S/S-T/R-Tはいずれも200V級)
+const VOLT_EXPECT = {
+  "R-S": { v: "202V", ac: true }, "S-T": { v: "201V", ac: true }, "R-T": { v: "203V", ac: true },
+  "L-N": { v: "101V", ac: true }, "0V-P": { v: "24.1V", ac: false }
+};
+// Stage2で「電圧確認済み」として要求する系統(三相はどれか1組でOK)
+const S2_VOLT_GROUPS = [
+  { id: "AC200V", pairs: ["R-S", "S-T", "R-T"], label: "主回路AC200V(相間どれか)" },
+  { id: "AC100V", pairs: ["L-N"], label: "制御AC100V(L-N)" },
+  { id: "DC24V", pairs: ["0V-P"], label: "制御DC24V(P-0V)" },
+];
 
 function measureVolt(a, b, range, out) {
   const isAC = range === "vac";
@@ -1512,12 +1567,14 @@ function stage2Requirements() {
     if (G.quarantined[cp.id]) return true;             // 異常発見済み→対処済扱い
     return G.cps[cp.id] && G.lampChecked[cp.id];       // ON+ランプ確認
   });
-  const requiredVolt = [["R", "S"], ["L", "N"], ["P", "0V"]].filter(p => {
-    const gate = pairKey(p[0], p[1]) === "L-N" ? "CP1" : pairKey(p[0], p[1]) === "0V-P" ? "CP2" : null;
+  // 系統ごとに1組でも測れていればOK(三相はR-S/S-T/R-Tのどれか)
+  const requiredGroups = S2_VOLT_GROUPS.filter(g => {
+    const gate = g.id === "AC100V" ? "CP1" : g.id === "DC24V" ? "CP2" : null;
     return !(gate && G.quarantined[gate]);
   });
-  const voltOk = requiredVolt.every(p => G.voltDone.has(pairKey(p[0], p[1])));
-  return { cpsHandled, voltOk };
+  const voltOk = requiredGroups.every(g => g.pairs.some(k => G.voltDone.has(k)));
+  const voltDoneCount = requiredGroups.filter(g => g.pairs.some(k => G.voltDone.has(k))).length;
+  return { cpsHandled, voltOk, voltDoneCount, voltTotal: requiredGroups.length, requiredGroups };
 }
 
 function updateChecklist() {
@@ -1552,7 +1609,7 @@ function updateChecklist() {
       [G.flags.sourceOn, "一次電源(壁の元電源)ON(Step12)"],
       [G.flags.mainOn, "主電源ON(Step13)"],
       [req.cpsHandled, "CP個別ON+機器確認(Step14〜15)"],
-      [req.voltOk, `各系統の電圧実測 ${G.voltDone.size}/3`],
+      [req.voltOk, `各系統の電圧実測 ${req.voltDoneCount}/${req.voltTotal}`],
     ];
   }
   el.innerHTML = items.map(([done, label]) =>
@@ -1564,27 +1621,61 @@ function updateChecklist() {
 function openZumen() {
   G.zumenOpened = true;
   if (!G.actionLog.some(l => l.modelId === "openZumen")) logAction("図面を確認した", "openZumen");
+  const isS2 = G.stageId === "stage2";
+  // ヘッダーをステージに合わせる
+  const head = $("#zumen-head");
+  if (head) {
+    head.innerHTML = isS2
+      ? `<tr><th>線番</th><th>系統</th><th>経路</th><th>電圧確認</th></tr>`
+      : `<tr><th>線番</th><th>系統</th><th>経路</th><th>導通</th><th>対E</th></tr>`;
+  }
   const tbl = $("#zumen-body");
   tbl.innerHTML = "";
   for (const n of NETS) {
-    const marked = G.markers.has("cont:" + n.id);
-    const ng = G.markers.has("cont:" + n.id + ":NG");
     const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td>${esc(n.id)}</td>
-      <td>${esc(n.group)}</td>
-      <td>盤側端子台 ${n.cpGate ? `→ <b>[${n.cpGate}]</b> ` : "→ "}→ 機器側端子台</td>
-      <td class="${marked ? "ok" : ""}">${ng ? "⚠異常記録" : marked ? "✔確認済" : "-"}</td>`;
+    const route = `盤側端子台 ${n.cpGate ? `→ <b>[${n.cpGate}]</b> ` : "→ "}→ 機器側端子台`;
+    if (isS2) {
+      // その線番が属する系統の電圧が測れているか
+      const grp = S2_VOLT_GROUPS.find(g => g.pairs.some(k => k.split("-").includes(n.id)));
+      const vDone = grp && grp.pairs.some(k => G.voltDone.has(k));
+      const vKey = grp && grp.pairs.find(k => G.voltDone.has(k));
+      tr.innerHTML = `
+        <td>${esc(n.id)}</td><td>${esc(n.group)}</td><td>${route}</td>
+        <td class="${vDone ? "ok" : ""}">${vDone ? `✔${esc(vKey)} 実測済` : grp ? "-" : "(測定対象外)"}</td>`;
+    } else {
+      const marked = G.markers.has("cont:" + n.id);
+      const ng = G.markers.has("cont:" + n.id + ":NG");
+      const eKey = pairKey(n.id, "E");
+      const eDone = n.id !== "E" && G.eDone.has(eKey);
+      tr.innerHTML = `
+        <td>${esc(n.id)}</td><td>${esc(n.group)}</td><td>${route}</td>
+        <td class="${marked && !ng ? "ok" : ""}">${ng ? "⚠異常記録" : marked ? "✔確認済" : "-"}</td>
+        <td class="${eDone ? "ok" : ""}">${n.id === "E" ? "—" : eDone ? "✔確認済" : "-"}</td>`;
+    }
     tbl.appendChild(tr);
   }
-  const marks = [];
-  for (const k of G.markers) {
-    if (k.startsWith("short:")) marks.push(k.slice(6) + "間✔");
-    if (k.startsWith("e:")) marks.push(k.slice(2) + "間✔");
-    if (k.startsWith("novolt:")) marks.push(k.slice(7) + "無電圧✔");
-    if (k.startsWith("volt:")) marks.push(k.slice(5) + "電圧✔");
+  // 線番の組み合わせで見る確認(短絡・無電圧)は表の下にまとめる
+  const lines = [];
+  if (!isS2) {
+    const shortList = S1_SHORT_PAIRS.map(p => {
+      const k = pairKey(p[0], p[1]);
+      return `${k}${G.shortDone.has(k) ? "✔" : "□"}`;
+    });
+    lines.push(`<b>異線番の短絡確認(Step8):</b> ${shortList.join(" / ")}`);
+    const nvList = NOVOLT_PAIRS.map(p => {
+      const k = pairKey(p.a, p.b);
+      return `${k}${G.noVolt[k] ? "✔" : "□"}`;
+    });
+    lines.push(`<b>無電圧確認(Step2・盤側):</b> ${nvList.join(" / ")}`);
+  } else {
+    const vList = S2_VOLT_GROUPS.map(g => {
+      const doneKey = g.pairs.find(k => G.voltDone.has(k));
+      return `${g.label}${doneKey ? `✔(${doneKey})` : "□"}`;
+    });
+    lines.push(`<b>電圧の実測(Step15):</b> ${vList.join(" / ")}`);
   }
-  $("#zumen-marks").textContent = marks.length ? "確認済み: " + marks.join(" / ") : "まだ確認済みの箇所はない(テスターで正しく測定すると自動でマーカーが付く)";
+  $("#zumen-marks").innerHTML = lines.join("<br>") +
+    `<br><span style="color:var(--dim)">※テスターで正しく測定すると自動でチェックが付く(現場でペンでなぞるのと同じ)</span>`;
   openModal("modal-zumen");
 }
 $("#btn-zumen").onclick = () => { if (G) openZumen(); };
