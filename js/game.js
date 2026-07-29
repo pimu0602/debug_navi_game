@@ -905,7 +905,7 @@ function toggleCP(cpId) {
     }
     const cpDef = CPS.find(c => c.id === cpId);
     if (turningOn && !cpDef.neededForCheck) {
-      missLight("cpUnneeded", `導通確認に不要な${cpId}をONにした(図面で必要なCPを確認しよう)`);
+      missLight("cpUnneeded", `${cpId}(${CP_DEVICE[cpId]}用)は今日の導通チェックと関係ないのにONにした(図面で必要なCPを確認しよう)`);
     }
   }
 
@@ -1665,6 +1665,13 @@ function openZumen() {
     head.innerHTML = isS2
       ? `<tr><th>線番</th><th>系統</th><th>経路</th><th>電圧確認</th></tr>`
       : `<tr><th>線番</th><th>系統</th><th>経路</th><th>導通</th><th>対E</th></tr>`;
+  }
+  // CPの役割はステージによって「関係あるか」が変わる(CP3=タッチパネル用は今日の導通チェックとは無関係)
+  const cpNote = $("#zumen-cp-note");
+  if (cpNote) {
+    cpNote.innerHTML = isS2
+      ? `・CP: <b>CP1(AC100V制御・PLC)・CP2(DC24V制御・DC電源)・CP3(タッチパネル用)</b> — 3つとも1つずつONにして機器を確認する`
+      : `・導通確認用CP: <b>CP1(AC100V制御)・CP2(DC24V制御)</b>(CP3はタッチパネル用の回路。今日の導通チェックには関係ない)`;
   }
   const tbl = $("#zumen-body");
   tbl.innerHTML = "";

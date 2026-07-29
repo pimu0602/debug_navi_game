@@ -54,11 +54,14 @@ const NETS = [
   // ※センサー(X)信号線はStage1の導通チェック対象外(現場判断により省略)
 ];
 
-// CP一覧(CP3は導通チェックに不要=ONにすると軽ミス)
+// CP一覧
+// CP3はタッチパネル用の回路。Stage1の導通チェックでは対象の線番がなく関係ないため、
+// ONにすると軽ミス(「予備」なのではなく、今日の作業には無関係というだけ)。
+// Stage2の電源投入編では他の2つと同様に必要なCPになる。
 const CPS = [
-  { id: "CP1", label: "CP1(AC100V制御)", neededForCheck: true },
-  { id: "CP2", label: "CP2(DC24V制御)",  neededForCheck: true },
-  { id: "CP3", label: "CP3(予備回路)",    neededForCheck: false }
+  { id: "CP1", label: "CP1(AC100V制御)",   neededForCheck: true },
+  { id: "CP2", label: "CP2(DC24V制御)",    neededForCheck: true },
+  { id: "CP3", label: "CP3(タッチパネル用)", neededForCheck: false }
 ];
 
 // 回り込み経路(CPがONのとき、異線番間に抵抗値が見える正常な経路)
