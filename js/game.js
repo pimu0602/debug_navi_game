@@ -1070,11 +1070,15 @@ function stage2VoltSequence() {
   for (const g of S2_VOLT_GROUPS) {
     const gate = g.id === "AC100V" ? "CP1" : g.id === "DC24V" ? "CP2" : null;
     if (gate && G.quarantined[gate]) continue;       // 異常で使用中止の系統は測らない
-    const [n1, n2] = g.pairs[0].split("-");
-    seq.push({
-      a: n1 + ".b", b: n2 + ".b", kind: "volt", group: g.id, label: g.label,
-      range: g.id === "DC24V" ? "vdc" : "vac", gate
-    });
+    // 全相間が必要な系統(三相)は全ペアを並べる。それ以外は代表の1組
+    const pairs = g.all ? g.pairs : [g.pairs[0]];
+    for (const pk of pairs) {
+      const [n1, n2] = pk.split("-");
+      seq.push({
+        a: n1 + ".b", b: n2 + ".b", kind: "volt", group: g.id, pairKey: pk, label: g.label,
+        range: g.id === "DC24V" ? "vdc" : "vac", gate
+      });
+    }
   }
   return seq;
 }
@@ -1094,8 +1098,13 @@ function pairMeasured(item) {
   if (item.kind === "e") return G.eDone.has(pairKey(ta.net, tb.net));
   if (item.kind === "novolt") return !!G.noVolt[pairKey(ta.net, tb.net)];
   if (item.kind === "volt") {
+    // 全相間が必要な系統はペア単位、それ以外は系統単位で判定
+    if (item.pairKey) {
+      const g = S2_VOLT_GROUPS.find(x => x.id === item.group);
+      return g && g.all ? G.voltDone.has(item.pairKey) : (g ? voltGroupDone(g) : false);
+    }
     const g = S2_VOLT_GROUPS.find(x => x.id === item.group);
-    return g ? g.pairs.some(k => G.voltDone.has(k)) : false;
+    return g ? voltGroupDone(g) : false;
   }
   return false;
 }
@@ -1471,17 +1480,45 @@ const VOLT_EXPECT = {
   "R-S": { v: "202V", ac: true }, "S-T": { v: "201V", ac: true }, "R-T": { v: "203V", ac: true },
   "L-N": { v: "101V", ac: true }, "0V-P": { v: "24.1V", ac: false }
 };
-// Stage2で「電圧確認済み」として要求する系統(三相はどれか1組でOK)
+// Stage2で「電圧確認済み」として要求する系統
+// 三相は1相でも欠相していれば事故につながるため、R-S・S-T・R-Tの全相間を測る
 const S2_VOLT_GROUPS = [
-  { id: "AC200V", pairs: ["R-S", "S-T", "R-T"], label: "主回路AC200V(相間どれか)" },
+  { id: "AC200V", pairs: ["R-S", "S-T", "R-T"], label: "主回路AC200V(全相間)", all: true },
   { id: "AC100V", pairs: ["L-N"], label: "制御AC100V(L-N)" },
   { id: "DC24V", pairs: ["0V-P"], label: "制御DC24V(P-0V)" },
 ];
+// その系統の電圧確認が完了したか(all:trueなら全ペア必要)
+function voltGroupDone(g) {
+  return g.all ? g.pairs.every(k => G.voltDone.has(k)) : g.pairs.some(k => G.voltDone.has(k));
+}
 
 function measureVolt(a, b, range, out) {
   const isAC = range === "vac";
   const key = pairKey(a.net, b.net);
   const np = NOVOLT_PAIRS.find(p => pairKey(p.a, p.b) === key);
+
+  // 主電源OFF・一次電源ONのとき、主回路の盤側(=主電源の1次側)には電圧が来ている
+  const bothPanel = (a.side === "盤側" && b.side === "盤側");
+  const isMainCircuit = !!np; // R-S / S-T / R-T
+  if (!G.flags.mainOn && G.flags.sourceOn && isMainCircuit && bothPanel) {
+    const exp1 = VOLT_EXPECT[key];
+    if (isAC) {
+      Sfx.click();
+      out.innerHTML = `${exp1.v} <span class="sub">AC — ここは主電源の<b>1次側</b>。元電源が入っているので電圧が来ている。<br>この先(2次側・制御回路)に電気を送るには主電源をONにする。</span>`;
+      logAction(`Vレンジ測定: ${key}(主電源1次側) → ${exp1.v}`, null);
+      if (G.stageId === "stage2" && !G.voltDone.has(key)) {
+        G.voltDone.add(key);
+        G.markers.add("volt:" + key);
+        logAction(`${key} 間の電圧を実測: ${exp1.v}(1次側・正常)`, "volt");
+        toast(`${key} 間 ${exp1.v}。図面にマーカーを付けた ✓`);
+      }
+    } else {
+      missMid("voltWrongRange", "AC回路をDCレンジで測定した", "AC200Vの相間をDCレンジで測ってもまともな値は出ない。回路がACかDCか、図面で確認してからレンジを合わせよう。");
+      out.innerHTML = `0.00V <span class="sub">(あれ?)なんだこの値は…</span>`;
+    }
+    updateChecklist();
+    return;
+  }
 
   if (!G.flags.mainOn) {
     // 無電圧
@@ -1572,8 +1609,8 @@ function stage2Requirements() {
     const gate = g.id === "AC100V" ? "CP1" : g.id === "DC24V" ? "CP2" : null;
     return !(gate && G.quarantined[gate]);
   });
-  const voltOk = requiredGroups.every(g => g.pairs.some(k => G.voltDone.has(k)));
-  const voltDoneCount = requiredGroups.filter(g => g.pairs.some(k => G.voltDone.has(k))).length;
+  const voltOk = requiredGroups.every(voltGroupDone);
+  const voltDoneCount = requiredGroups.filter(voltGroupDone).length;
   return { cpsHandled, voltOk, voltDoneCount, voltTotal: requiredGroups.length, requiredGroups };
 }
 
@@ -1635,13 +1672,20 @@ function openZumen() {
     const tr = document.createElement("tr");
     const route = `盤側端子台 ${n.cpGate ? `→ <b>[${n.cpGate}]</b> ` : "→ "}→ 機器側端子台`;
     if (isS2) {
-      // その線番が属する系統の電圧が測れているか
+      // その線番が属する系統の電圧が測れているか(三相は関係する相間ごとに表示)
       const grp = S2_VOLT_GROUPS.find(g => g.pairs.some(k => k.split("-").includes(n.id)));
-      const vDone = grp && grp.pairs.some(k => G.voltDone.has(k));
-      const vKey = grp && grp.pairs.find(k => G.voltDone.has(k));
+      let cell = "(測定対象外)", vDone = false;
+      if (grp) {
+        const myPairs = grp.pairs.filter(k => k.split("-").includes(n.id));
+        const doneP = myPairs.filter(k => G.voltDone.has(k));
+        vDone = doneP.length === myPairs.length;
+        cell = doneP.length
+          ? `${vDone ? "✔" : ""}${esc(doneP.join("・"))} 実測済${vDone ? "" : ` <span style="color:#e0c060">(残:${esc(myPairs.filter(k => !G.voltDone.has(k)).join("・"))})</span>`}`
+          : "-";
+      }
       tr.innerHTML = `
         <td>${esc(n.id)}</td><td>${esc(n.group)}</td><td>${route}</td>
-        <td class="${vDone ? "ok" : ""}">${vDone ? `✔${esc(vKey)} 実測済` : grp ? "-" : "(測定対象外)"}</td>`;
+        <td class="${vDone ? "ok" : ""}">${cell}</td>`;
     } else {
       const marked = G.markers.has("cont:" + n.id);
       const ng = G.markers.has("cont:" + n.id + ":NG");
@@ -1669,10 +1713,10 @@ function openZumen() {
     lines.push(`<b>無電圧確認(Step2・盤側):</b> ${nvList.join(" / ")}`);
   } else {
     const vList = S2_VOLT_GROUPS.map(g => {
-      const doneKey = g.pairs.find(k => G.voltDone.has(k));
-      return `${g.label}${doneKey ? `✔(${doneKey})` : "□"}`;
+      const detail = g.pairs.map(k => `${k}${G.voltDone.has(k) ? "✔" : "□"}`).join(" ");
+      return `${g.label}: ${detail}`;
     });
-    lines.push(`<b>電圧の実測(Step15):</b> ${vList.join(" / ")}`);
+    lines.push(`<b>電圧の実測(Step15):</b><br>　${vList.join("<br>　")}`);
   }
   $("#zumen-marks").innerHTML = lines.join("<br>") +
     `<br><span style="color:var(--dim)">※テスターで正しく測定すると自動でチェックが付く(現場でペンでなぞるのと同じ)</span>`;
