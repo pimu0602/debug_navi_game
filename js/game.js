@@ -1675,7 +1675,10 @@ function openZumen() {
       // その線番が属する系統の電圧が測れているか(三相は関係する相間ごとに表示)
       const grp = S2_VOLT_GROUPS.find(g => g.pairs.some(k => k.split("-").includes(n.id)));
       let cell = "(測定対象外)", vDone = false;
-      if (grp) {
+      const grpGate = grp ? (grp.id === "AC100V" ? "CP1" : grp.id === "DC24V" ? "CP2" : null) : null;
+      if (grp && grpGate && G.quarantined[grpGate]) {
+        cell = `<span style="color:#e0a860">${grpGate}点検中のため対象外</span>`;
+      } else if (grp) {
         const myPairs = grp.pairs.filter(k => k.split("-").includes(n.id));
         const doneP = myPairs.filter(k => G.voltDone.has(k));
         vDone = doneP.length === myPairs.length;
@@ -1713,8 +1716,14 @@ function openZumen() {
     lines.push(`<b>無電圧確認(Step2・盤側):</b> ${nvList.join(" / ")}`);
   } else {
     const vList = S2_VOLT_GROUPS.map(g => {
+      const gate = g.id === "AC100V" ? "CP1" : g.id === "DC24V" ? "CP2" : null;
+      if (gate && G.quarantined[gate]) {
+        // 異常発見でそのCPを点検中にした系統は、通電できないので測定対象から外れる
+        return `${g.label}: <span style="color:#e0a860">${gate}は異常のため点検中 — この系統の電圧確認は対象外</span>`;
+      }
       const detail = g.pairs.map(k => `${k}${G.voltDone.has(k) ? "✔" : "□"}`).join(" ");
-      return `${g.label}: ${detail}`;
+      const note = gate && !G.cps[gate] ? ` <span style="color:#e0c060">(${gate}がOFF)</span>` : "";
+      return `${g.label}: ${detail}${note}`;
     });
     lines.push(`<b>電圧の実測(Step15):</b><br>　${vList.join("<br>　")}`);
   }
@@ -1768,9 +1777,17 @@ function openReport() {
   ]);
 }
 
+// 異常でCPを点検中にした系統は通電できないので、その配下の不良は確認しようがない
+// (正しい対処をしたプレイヤーが「見逃し」で不合格になるのを防ぐ)
+function defectUnreachable(d) {
+  if (G.stageId !== "stage2" || d.type !== "lamp") return false;
+  const cp = Object.keys(CP_DEVICE).find(k => CP_DEVICE[k] === d.target);
+  return !!(cp && G.quarantined[cp]);
+}
+
 function submitReport(problems) {
   logAction("作業完了を申告した", "report");
-  const missedDefects = G.defects.filter(d => !d.found);
+  const missedDefects = G.defects.filter(d => !d.found && !defectUnreachable(d));
   const falseReports = G.reports.filter(r => r.defectIndex === null);
   const bigMisses = G.missLog.filter(m => m.level === "大").length;
 
