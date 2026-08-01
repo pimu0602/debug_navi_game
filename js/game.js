@@ -161,6 +161,7 @@ function startStage(stage) {
     quarantined: {},     // stage2 CPid -> true(異常で使用中止)
     markers: new Set(),  // 図面マーカー
     doneSteps: new Set(),// 汎用ステージ(Stage3〜10)の完了項目
+    inspected: {},       // 汎用ステージで「調べて見た」情報(id -> 表示テキスト)
     defects: GENERIC_STAGES[stage.id] ? [] : generateDefects(stage),
     reports: [],         // {key, desc, defectIndex(null=誤記録)}
     pendingAnomaly: null,
@@ -246,6 +247,7 @@ function makeCheckpoint(name) {
   G.checkpointName = name;
   G.checkpoint = {
     doneSteps: [...(G.doneSteps || [])],
+    inspected: { ...(G.inspected || {}) },
     flags: { ...G.flags },
     cps: { ...G.cps },
     cpEverOn: { ...G.cpEverOn },
@@ -279,6 +281,7 @@ function restoreCheckpoint() {
     return;
   }
   G.doneSteps = new Set(c.doneSteps || []);
+  G.inspected = { ...(c.inspected || {}) };
   G.flags = { ...c.flags };
   G.cps = { ...c.cps };
   G.cpEverOn = { ...(c.cpEverOn || G.cpEverOn) };
@@ -663,10 +666,16 @@ const STATION_INFO = {
   desk:    { title: "作業机", desc: "図面と記録用紙が置いてある。" },
 };
 
+// judges と steps をまとめて「やるべき項目」として扱う(表示順は定義順)
+function allGenericTasks(def) {
+  const d = def || gdef();
+  return [...(d.judges || []), ...d.steps];
+}
+
 function genericModelProcedure(def) {
   return [
     { id: "openZumen", label: "図面・資料を確認する", comment: "作業前にまず図面。" },
-    ...def.steps.map(s => ({ id: s.id, label: s.label, comment: s.comment || "手順書どおりに。" })),
+    ...allGenericTasks(def).map(s => ({ id: s.id, label: s.label, comment: s.comment || "手順書どおりに。" })),
     { id: "report", label: "作業完了を申告する(異常があれば記録も報告)", comment: "確認結果を報告して工程完了。" },
   ];
 }
@@ -678,9 +687,95 @@ function generateGenericDefects(def) {
   return shuffled.slice(0, count).map(d => ({ ...d, target: d.type, found: false }));
 }
 
+// ---- 調べる(inspect): 情報を見るだけ。判断はプレイヤーがやる ----
+// 見た情報は G.inspected に貯まり、照合(judge)の材料になる
+function performInspect(ins) {
+  const def = gdef();
+  // 不良が絡む項目は、不良ありの表示に差し替わる
+  const defect = G.defects.find(d => d.inspect === ins.id && !d.found);
+  const info = defect && defect.inspectText ? defect.inspectText : ins.text;
+  G.inspected[ins.id] = info;
+  logAction(`${ins.label}を確認した`, ins.modelId || null);
+  Sfx.click();
+  showMenu(ins.label, `<div class="inspect-box">${info}</div>`, [
+    { label: "メモした(閉じる)", fn: () => {} },
+  ]);
+}
+
+// ---- 照合して判断する(judge): 自分で一致/不一致を答える ----
+function performJudge(j) {
+  if (G.doneSteps.has(j.id)) { toast("それはもう判断済みだ"); return; }
+  if (!G.zumenOpened) missLight("genNoZumen", "図面・資料を確認せずに作業を始めた");
+  // 前提となる作業が終わっていなければブロック
+  for (const n of (j.needs || [])) {
+    if (!G.doneSteps.has(n)) {
+      const req = allGenericTasks().find(x => x.id === n);
+      toast(`先に「${req ? req.label : n}」を済ませる必要がある`, true);
+      return;
+    }
+  }
+  // 判断に必要な情報を見ていないなら、まず調べさせる
+  const missing = (j.needsInspect || []).filter(id => !G.inspected[id]);
+  if (missing.length) {
+    const names = missing.map(id => (gdef().inspects.find(x => x.id === id) || {}).label || id);
+    toast(`まだ「${names.join("」「")}」を見ていない。自分の目で確認してから判断しよう`, true);
+    return;
+  }
+  // 見た情報を並べて、プレイヤーに選ばせる
+  const shown = (j.needsInspect || []).map(id => {
+    const ins = gdef().inspects.find(x => x.id === id);
+    return `<b>${esc(ins.label)}</b><br>${G.inspected[id]}`;
+  }).join("<hr style='border-color:#3a4150;margin:8px 0'>");
+  const defect = G.defects.find(d => d.judge === j.id && !d.found);
+  const opts = j.options.map(o => ({
+    label: o.label,
+    fn: () => resolveJudge(j, o, defect),
+  }));
+  showMenu(j.label, `<div class="inspect-box">${shown}</div><br>${j.question}`, opts);
+}
+
+function resolveJudge(j, opt, defect) {
+  const isCorrect = defect ? opt.id === j.answerNG : opt.id === j.answerOK;
+  if (isCorrect) {
+    if (defect) {
+      defect.found = true;
+      G.reports.push({ key: defect.type, desc: defect.name, defectIndex: G.defects.indexOf(defect) });
+      Sfx.pickup();
+      completeStep(j, defect.correctMsg || "違いを見つけて記録した。");
+    } else {
+      completeStep(j, j.okMsg || "一致を確認した。ヨシ!");
+    }
+    return;
+  }
+  // 判断ミス
+  if (defect) {
+    // 不良を見逃した(見落としたまま次へ進む)
+    const lv = j.missLevel || "mid";
+    if (lv === "big") { missBig(j.missText || "違いを見落としたまま先へ進んだ", defect.lesson, gdef().fireAt); return; }
+    missMid(null, j.missText || "違いを見落としたまま先へ進んだ", defect.lesson);
+    completeStep(j, "…問題なしとして先へ進んだ。");
+  } else {
+    // 正常なのに異常と判断した(誤記録)
+    G.reports.push({ key: "false:" + j.id, desc: j.falseDesc || `${j.label}で誤って異常と判断`, defectIndex: null, kind: "judge-false" });
+    missLight("judgeFalse:" + j.id, j.falseText || "正常な状態を異常と判断した");
+    completeStep(j, "…異常として記録した。(本当に違っていたか?)");
+  }
+}
+
 function genericStationMenu(station) {
   const def = gdef();
   const items = [];
+  // 調べる(情報を見る)
+  for (const ins of (def.inspects || []).filter(x => x.station === station)) {
+    const seen = !!G.inspected[ins.id];
+    items.push({ label: (seen ? "👁 " : "") + ins.label, fn: () => performInspect(ins) });
+  }
+  // 判断する
+  for (const j of (def.judges || []).filter(x => x.station === station)) {
+    const done = G.doneSteps.has(j.id);
+    items.push({ label: (done ? "✔ " : "") + j.label, fn: () => performJudge(j) });
+  }
+  // 通常の作業ステップ
   for (const s of def.steps.filter(x => x.station === station)) {
     const done = G.doneSteps.has(s.id);
     items.push({ label: (done ? "✔ " : "") + s.label, fn: () => performStep(s) });
@@ -700,14 +795,21 @@ function performStep(s) {
   if (!G.zumenOpened) missLight("genNoZumen", "図面・資料を確認せずに作業を始めた");
   for (const n of (s.needs || [])) {
     if (!G.doneSteps.has(n)) {
-      const req = gdef().steps.find(x => x.id === n);
+      const req = allGenericTasks().find(x => x.id === n);
       toast(`先に「${req ? req.label : n}」を済ませる必要がある`, true);
+      return;
+    }
+  }
+  for (const n of (s.needsInspect || [])) {
+    if (!G.inspected[n]) {
+      const ins = (gdef().inspects || []).find(x => x.id === n);
+      toast(`まず「${ins ? ins.label : n}」で今の状態を確認しよう`, true);
       return;
     }
   }
   for (const n of (s.softNeeds || [])) {
     if (!G.doneSteps.has(n)) {
-      const req = gdef().steps.find(x => x.id === n);
+      const req = allGenericTasks().find(x => x.id === n);
       missLight("skip:" + s.id + ":" + n, `「${req.label}」を飛ばして「${s.label}」を行った`);
     }
   }
@@ -1619,7 +1721,7 @@ function updateChecklist() {
   if (!G) return;
   let items;
   if (isGeneric()) {
-    items = gdef().steps.map(s => [G.doneSteps.has(s.id), s.label]);
+    items = allGenericTasks().map(s => [G.doneSteps.has(s.id), s.label]);
   } else if (G.stageId === "stage1") {
     const contCount = S1_CONT_NETS.filter(n => G.contDone.has(n)).length;
     const shortCount = S1_SHORT_PAIRS.filter(p => G.shortDone.has(pairKey(p[0], p[1]))).length;
@@ -1753,7 +1855,7 @@ $("#btn-quit").onclick = () => {
 function openReport() {
   const problems = [];
   if (isGeneric()) {
-    for (const s of gdef().steps) if (!G.doneSteps.has(s.id)) problems.push(`未実施: ${s.label}`);
+    for (const s of allGenericTasks()) if (!G.doneSteps.has(s.id)) problems.push(`未実施: ${s.label}`);
   } else if (G.stageId === "stage1") {
     if (!G.flags.leverChecked) problems.push("主電源ブレーカーのレバー確認がまだ");
     if (!stage1NoVoltDone()) problems.push("無電圧確認がまだ終わっていない");

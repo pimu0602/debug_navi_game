@@ -54,6 +54,16 @@ button:focus-visible, .stage-card:focus, .stage-card:focus-visible {
 }
 .stage-card:focus:not(.locked) { border-color: var(--accent); }
 
+/* 調べた情報の表示(実機の銘板・PC画面など) */
+.inspect-box {
+  background: #10141c; border: 1px solid #3a4150; border-radius: 6px;
+  padding: 10px 12px; margin: 6px 0; font-family: "MS Gothic", monospace;
+  font-size: 13px; line-height: 1.7; color: #c8d0dc; white-space: pre-wrap;
+}
+.inspect-box b { color: var(--accent); }
+.inspect-box .lbl { color: #8a92a0; }
+.inspect-box .val { color: #e8eef8; font-weight: bold; }
+
 /* おまかせ測定の結果一覧 */
 .auto-results-box { margin-top: 10px; background: #1a1e28; border: 1px solid #3a4150; border-radius: 6px; padding: 8px 10px; max-height: 220px; overflow-y: auto; }
 .ar-head { font-size: 12px; color: var(--accent); margin-bottom: 6px; }

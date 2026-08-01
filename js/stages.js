@@ -11,38 +11,156 @@ const GENERIC_STAGES = {
     initial: { sourceOn: true, mainOn: true, cps: { CP1: true, CP2: true, CP3: true } },
     defectCountRange: [0, 2],
     fireAt: "panel",
+
+    // ---- 調べる: 情報を見るだけ。一致/不一致の判断はプレイヤーがやる ----
+    inspects: [
+      { id: "i_cpu", station: "machine", label: "PLC本体の銘板を見る", modelId: "i_cpu",
+        text: `<span class="lbl">MITSUBISHI MELSEC-Q</span>
+<span class="lbl">CPU UNIT</span>
+<span class="lbl">MODEL </span><span class="val">Q06UDVCPU</span>
+<span class="lbl">SERIAL </span>2410 0871
+<span class="lbl">電源ユニット </span>Q62P` },
+      { id: "i_units", station: "machine", label: "増設ユニットの並びを見る", modelId: "i_units",
+        text: `<span class="lbl">ベースユニット Q35B(5スロット)</span>
+ <span class="lbl">スロット0:</span> <span class="val">QX40</span>(DC入力16点)
+ <span class="lbl">スロット1:</span> <span class="val">QX40</span>(DC入力16点)
+ <span class="lbl">スロット2:</span> <span class="val">QY40P</span>(トランジスタ出力16点)
+ <span class="lbl">スロット3:</span> <span class="val">QJ71C24N</span>(シリアル通信)
+ <span class="lbl">スロット4:</span> 空き` },
+      { id: "i_proj", station: "pc", label: "GX Works2のプロジェクト情報を見る", modelId: "i_proj",
+        text: `<span class="lbl">プロジェクト名 </span>JISSHU_2024.gxw
+<span class="lbl">PLCシリーズ </span>QCPU(Qモード)
+<span class="lbl">PLCタイプ </span><span class="val">Q06UDV</span>
+<span class="lbl">最終更新 </span>2024/10/03 16:22` },
+      { id: "i_io", station: "pc", label: "GX Works2のI/O割付設定を見る", modelId: "i_io",
+        text: `<span class="lbl">I/O割付設定</span>
+ <span class="lbl">スロット0:</span> 入力16点 先頭XY <span class="val">0000</span>
+ <span class="lbl">スロット1:</span> 入力16点 先頭XY <span class="val">0010</span>
+ <span class="lbl">スロット2:</span> 出力16点 先頭XY <span class="val">0020</span>
+ <span class="lbl">スロット3:</span> インテリ 先頭XY <span class="val">0030</span>` },
+      { id: "i_conn", station: "pc", label: "接続先設定の画面を見る", modelId: "i_conn",
+        text: `<span class="lbl">パソコン側I/F </span><span class="val">シリアル/USB</span>
+<span class="lbl">　　詳細設定 </span><span class="val">USB</span>
+<span class="lbl">シーケンサ側I/F </span><span class="val">CPUユニット</span>
+<span class="lbl">他局指定 </span><span class="val">他局指定なし</span>` },
+      { id: "i_diag", station: "pc", label: "PLC診断の画面を見る", modelId: "i_diag",
+        text: `<span class="lbl">PLC診断</span>
+ CPUエラー   : <span class="val">なし</span>
+ I/Oユニット : <span class="val">正常</span>
+ ネットワーク: <span class="val">正常</span>
+ バッテリ    : <span class="val">正常</span>
+ <span class="lbl">RUN/STOPスイッチ: STOP</span>` },
+    ],
+
+    // ---- 照合して判断する: 答えは選択肢に書かない ----
+    judges: [
+      { id: "j_cpu", station: "pc", label: "PLCの型式が合っているか判断する",
+        needsInspect: ["i_cpu", "i_proj"],
+        question: "実機のCPUと、開いているプロジェクトのPLCタイプ。この2つは合っているか?",
+        options: [
+          { id: "ok", label: "一致している。このまま進めてよい" },
+          { id: "ng", label: "違っている。書き込んではいけない" },
+        ],
+        answerOK: "ok", answerNG: "ng",
+        okMsg: "実機Q06UDV、プロジェクトQ06UDV。一致だ。ヨシ!",
+        missText: "型式が違うのに『一致』と判断して先に進んだ",
+        falseText: "型式は一致しているのに『違う』と判断した",
+        falseDesc: "PLC型式の照合で誤判断(実際は一致)",
+        comment: "間違ったPLCに書き込まないための最初の関門(Step17)。" },
+
+      { id: "j_io", station: "pc", label: "I/O割付が図面と合っているか判断する",
+        needsInspect: ["i_units", "i_io"],
+        question: "実機のユニットの並びと、GX Works2のI/O割付。図面のI/O表(スロット0=X00〜、1=X10〜、2=Y20〜、3=先頭30)と見比べて、どうか?",
+        options: [
+          { id: "ok", label: "実機・設定・図面すべて一致している" },
+          { id: "ng", label: "どこかがズレている。直す必要がある" },
+        ],
+        answerOK: "ok", answerNG: "ng",
+        okMsg: "ユニットの並びも先頭XYも図面どおり。一致だ。",
+        missText: "I/O割付がズレているのに『一致』と判断して先に進んだ",
+        falseText: "I/O割付は合っているのに『ズレている』と判断した",
+        falseDesc: "I/O割付の照合で誤判断(実際は一致)",
+        comment: "割付がズレると以降のI/Oチェックが全部狂う(Step20)。" },
+
+      { id: "j_diag", station: "pc", label: "PLC診断の結果を判断する",
+        needsInspect: ["i_diag"], needs: ["s_write"],
+        question: "診断画面を見た。この装置は次の工程へ進んでよい状態か?",
+        options: [
+          { id: "ok", label: "異常なし。次工程へ進んでよい" },
+          { id: "ng", label: "異常がある。記録して対処が必要だ" },
+        ],
+        answerOK: "ok", answerNG: "ng", checkpoint: true,
+        okMsg: "CPU・I/O・ネットワーク・バッテリすべて正常。RUNにして次工程へ!",
+        missText: "診断にエラーが出ているのに『異常なし』と判断した",
+        falseText: "診断は正常なのに『異常あり』と判断した",
+        falseDesc: "PLC診断で誤判断(実際は正常)",
+        comment: "書き込めても診断エラーが残っていたら次工程へ進まない(Step24)。" },
+    ],
+
+    // ---- 操作(答えを選択肢に書かない、操作単位に分解) ----
     steps: [
-      { id: "s17", station: "pc", label: "実機PLCの型式とプロジェクトのPLCタイプを照合する",
-        comment: "間違ったPLCに書き込まないための最初の関門(Step17)。",
-        doneMsg: "CPU型式はQ06UDV。プロジェクトの設定と一致。ヨシ!" },
-      { id: "s18", station: "pc", label: "接続先設定をUSBに設定する(PC側I/F・シーケンサ側I/F)",
+      { id: "s_conn", station: "pc", label: "接続先設定を開いて設定する", needsInspect: ["i_conn"],
         comment: "USBケーブルを挿しただけでは通信できない(Step18)。",
-        doneMsg: "PC側I/F=シリアル/USB、シーケンサ側I/F=CPUユニット、他局指定なし。設定OK。" },
-      { id: "s19", station: "pc", label: "通信テストを実行する", needs: ["s18"], defect: "commfail",
+        doneMsg: "PC側I/F=シリアル/USB、シーケンサ側=CPUユニット。設定を保存した。" },
+      { id: "s_test", station: "pc", label: "通信テストを実行する", needs: ["s_conn"], defect: "commfail",
         comment: "書き込み前に必ず接続確認(Step19)。",
         doneMsg: "『接続に成功しました』。通信OK!" },
-      { id: "s20", station: "pc", label: "実機のユニット構成とI/O割付・先頭XYアドレスを照合する", defect: "iomismatch",
-        comment: "割付がズレると以降のI/Oチェックが全部狂う(Step20)。",
-        doneMsg: "ユニット構成・スロット位置・先頭XYアドレス、図面のI/O表と一致。" },
-      { id: "s23a", station: "pc", label: "既存プログラムのバックアップを取得する",
+      { id: "s_backup", station: "pc", label: "既存プログラムを読み出して保存する",
         comment: "書き込み前のバックアップは保険(Step23)。",
         doneMsg: "読み出してバックアップ保存した。これで何かあっても戻せる。" },
-      { id: "s23b", station: "pc", label: "プログラムとパラメータを書き込む", needs: ["s17", "s19"], softNeeds: ["s23a", "s20"],
+      { id: "s_write", station: "pc", label: "プログラムとパラメータを書き込む",
+        needs: ["j_cpu", "s_test"], softNeeds: ["s_backup", "j_io"],
         comment: "対象PLC・書き込み対象を確認してから(Step23)。",
         doneMsg: "書き込み完了。エラーなし。" },
-      { id: "s24", station: "pc", label: "PLC診断でエラー確認し、RUNにする", needs: ["s23b"], defect: "diagerror", checkpoint: true,
-        comment: "書き込めても診断エラーが残っていたら次工程へ進まない(Step24)。",
-        doneMsg: "CPU・I/O・ネットワーク異常なし。RUNランプ点灯!" },
     ],
+
     dangers: [
-      { station: "pc", label: "通信テストを省略して、いきなり書き込みを実行する", level: "mid",
+      { station: "pc", label: "型式を確認せず、いきなり書き込みボタンを押す", level: "mid",
         text: "接続先がどのPLCか確認しないまま書き込み開始…途中でエラーになり失敗した",
-        lesson: "書き込み前に通信テストと接続先確認(Step19)。間違ったPLCへの書き込みは装置の誤動作に直結する。" },
-      { station: "panel", label: "よく分からないがDIPスイッチを動かしてみる", level: "mid",
+        lesson: "書き込み前に型式照合と通信テスト(Step17・19)。間違ったPLCへの書き込みは装置の誤動作に直結する。" },
+      { station: "pc", label: "RUN中のPLCにそのまま書き込む", level: "big",
+        text: "動作中のPLCにプログラムを上書き!出力が一瞬暴れて、装置がガシャンと音を立てた!",
+        lesson: "稼働中の装置に書き込む場合は必ず停止状態・安全状態を確認してから(Step23)。RUN中の書き込みは予期せぬ出力変化を招く。" },
+      { station: "machine", label: "よく分からないがDIPスイッチを動かしてみる", level: "mid",
         text: "設定が変わって通信不能に…慌てて元に戻した",
         lesson: "実機側のスイッチ設定は図面・マニュアルの確認が先。勘で触らない。" },
+      { station: "machine", label: "通電したままユニットを抜き差ししてみる", level: "big",
+        text: "活線挿抜!バチッと音がしてCPUエラーランプが赤く光った!",
+        lesson: "ユニットの抜き差しは必ず電源を落としてから。通電中の抜き差しは機器を壊す。" },
     ],
+
+    // ---- 不良: 「調べた画面」の表示そのものが変わる(教えてもらえない) ----
     defectPool: [
+      { type: "cpumismatch", name: "PLC型式の不一致(実機とプロジェクトが別物)",
+        judge: "j_cpu", inspect: "i_proj",
+        inspectText: `<span class="lbl">プロジェクト名 </span>JISSHU_2023.gxw
+<span class="lbl">PLCシリーズ </span>QCPU(Qモード)
+<span class="lbl">PLCタイプ </span><span class="val">Q06UDH</span>
+<span class="lbl">最終更新 </span>2023/08/11 09:40`,
+        lesson: "実機Q06UDVに対しプロジェクトはQ06UDH。型式違いのまま書き込むと動かない・壊す(Step17)。似た型番ほど危ない。",
+        correctMsg: "実機はQ06UDV、プロジェクトはQ06UDH。別物だ!書き込む前に気づけてよかった。記録した。" },
+
+      { type: "iomismatch", name: "I/O割付の不一致(先頭XYアドレスのズレ)",
+        judge: "j_io", inspect: "i_io",
+        inspectText: `<span class="lbl">I/O割付設定</span>
+ <span class="lbl">スロット0:</span> 入力16点 先頭XY <span class="val">0000</span>
+ <span class="lbl">スロット1:</span> 入力16点 先頭XY <span class="val">0020</span>
+ <span class="lbl">スロット2:</span> 出力16点 先頭XY <span class="val">0030</span>
+ <span class="lbl">スロット3:</span> インテリ 先頭XY <span class="val">0040</span>`,
+        lesson: "スロット1以降の先頭XYが図面と16点ぶんズレている。割付ズレは後工程のI/Oチェック全滅につながる(Step20)。",
+        correctMsg: "スロット1が0010のはずが0020。図面とズレている!修正して記録した。" },
+
+      { type: "diagerror", name: "PLCのバッテリエラー残留",
+        judge: "j_diag", inspect: "i_diag",
+        inspectText: `<span class="lbl">PLC診断</span>
+ CPUエラー   : <span class="val">なし</span>
+ I/Oユニット : <span class="val">正常</span>
+ ネットワーク: <span class="val">正常</span>
+ バッテリ    : <span class="val" style="color:#e06060">BATTERY ERROR (1600)</span>
+ <span class="lbl">RUN/STOPスイッチ: STOP</span>`,
+        lesson: "診断エラーが残ったまま次工程に進まない(Step24)。電池切れは停電時のプログラム消失につながる。",
+        correctMsg: "バッテリエラー1600。記録して電池交換を手配した。エラー内容を記録してから対処、だな。" },
+
       { type: "commfail", name: "USB通信の不通(ドライバ・ケーブル不良)",
         lesson: "通信NGはケーブル・ドライバ・接続先設定の順に切り分ける(Step19)。",
         eventDesc: "通信テスト実行…失敗!『接続先CPUと交信できません』と出た。どうする?",
@@ -50,18 +168,6 @@ const GENERIC_STAGES = {
         correctMsg: "別のUSBポートに挿し直して再テスト…成功!原因を記録した。",
         wrongLabel: "PCを再起動して祈る", wrongLevel: "mid",
         wrongText: "再起動に5分、結果は同じ。祈りは通信仕様書に載っていない…(原因未特定のまま)" },
-      { type: "iomismatch", name: "I/O割付の不一致(先頭XYアドレスのズレ)",
-        lesson: "割付ズレは後工程のI/Oチェック全滅につながる。書き込み前に必ず照合(Step20)。",
-        eventDesc: "図面のI/O表とGX Works2の割付を見比べると…入力ユニットの先頭アドレスがX20からズレている!",
-        correctLabel: "どちらが正しいか確認し、割付を修正して記録する",
-        correctMsg: "図面が正。パラメータの先頭XYを修正した。記録もOK。",
-        wrongLabel: "たぶん図面が古いんだろう。無視して進める", wrongLevel: "miss" },
-      { type: "diagerror", name: "PLCの電池エラー残留",
-        lesson: "診断エラーが残ったまま次工程に進まない(Step24)。電池切れは停電時のプログラム消失につながる。",
-        eventDesc: "PLC診断を開くと…電池エラーが点灯している!",
-        correctLabel: "エラー内容を記録し、電池交換を手配する",
-        correctMsg: "電池エラーを記録。交換手配した。エラー内容を記録してから対処、だな。",
-        wrongLabel: "動いてるからヨシ!診断画面を閉じる", wrongLevel: "miss" },
     ],
   },
 
