@@ -35,7 +35,16 @@ function show(id) {
   document.querySelectorAll(".screen").forEach(s => s.classList.remove("active"));
   $("#" + id).classList.add("active");
 }
-function openModal(id) { $("#" + id).classList.add("active"); }
+function openModal(id) {
+  // モーダルを開くと keyup を拾えなくなるので、押しっぱなし状態をここで解除する
+  // (歩きながら話しかけると、閉じた後も同じ方向に歩き続けるのを防ぐ)
+  clearHeldKeys();
+  $("#" + id).classList.add("active");
+}
+function clearHeldKeys() {
+  if (typeof keys === "undefined") return;
+  for (const k of Object.keys(keys)) keys[k] = false;
+}
 function closeModal(id) { $("#" + id).classList.remove("active"); }
 function closeAllModals() {
   document.querySelectorAll(".overlay").forEach(o => o.classList.remove("active"));
@@ -2003,10 +2012,49 @@ function finishStage(pass, reasons, missedDefects) {
 
 // ---------------- NPCチャット ----------------
 function npcStateSummary() {
-  return {
+  const base = {
     stageId: G.stageId,
     stageTitle: G.stage.title,
+    goalText: G.stage.goalText,
     hasTester: G.inventory.tester,
+    zumenOpened: G.zumenOpened,
+    recordedReports: G.reports.map(r => r.desc),
+    recentActions: G.actionLog.slice(-8).map(l => l.text),
+    recentMisses: G.missLog.slice(-3),
+    defects: G.defects.map(d => ({ name: d.name, found: d.found })), // AI用の正解情報(直接教えない指示付き)
+  };
+  // Stage3以降(汎用ステージ)は、その工程の項目と進み具合をそのまま渡す
+  if (isGeneric()) {
+    const def = gdef();
+    const tasks = allGenericTasks();
+    const doneList = tasks.filter(t => G.doneSteps.has(t.id));
+    const todoList = tasks.filter(t => !G.doneSteps.has(t.id));
+    // いま着手できる項目(前提を満たしているもの)
+    const available = todoList.filter(t =>
+      (t.needs || []).every(n => G.doneSteps.has(n)) &&
+      (t.needsInspect || []).every(n => G.inspected[n]));
+    return {
+      ...base,
+      progress: `${doneList.length}/${tasks.length} 項目完了`,
+      doneTasks: doneList.map(t => t.label),
+      nextCandidates: available.map(t => t.label),
+      blockedTasks: todoList.filter(t => !available.includes(t)).map(t => ({
+        label: t.label,
+        待ち: [
+          ...(t.needs || []).filter(n => !G.doneSteps.has(n))
+            .map(n => (tasks.find(x => x.id === n) || {}).label || n),
+          ...(t.needsInspect || []).filter(n => !G.inspected[n])
+            .map(n => ((def.inspects || []).find(x => x.id === n) || {}).label || n),
+        ],
+      })),
+      inspectedInfo: Object.keys(G.inspected).map(id =>
+        ((def.inspects || []).find(x => x.id === id) || {}).label || id),
+      notInspected: (def.inspects || []).filter(x => !G.inspected[x.id]).map(x => x.label),
+    };
+  }
+  // Stage1・2
+  return {
+    ...base,
     leverChecked: G.flags.leverChecked,
     noVoltDone: stage1NoVoltDone(),
     cpOn: G.cpEverOn.CP1 && G.cpEverOn.CP2,
@@ -2019,10 +2067,6 @@ function npcStateSummary() {
     mainOn: G.flags.mainOn,
     cpAllChecked: G.stageId === "stage2" ? stage2Requirements().cpsHandled : undefined,
     voltDone: G.stageId === "stage2" ? stage2Requirements().voltOk : undefined,
-    recordedReports: G.reports.map(r => r.desc),
-    recentActions: G.actionLog.slice(-8).map(l => l.text),
-    recentMisses: G.missLog.slice(-3),
-    defects: G.defects.map(d => ({ name: d.name, found: d.found })), // AI用の正解情報(直接教えない指示付き)
   };
 }
 
