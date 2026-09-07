@@ -39,6 +39,7 @@ function openModal(id) {
   // モーダルを開くと keyup を拾えなくなるので、押しっぱなし状態をここで解除する
   // (歩きながら話しかけると、閉じた後も同じ方向に歩き続けるのを防ぐ)
   clearHeldKeys();
+  if (G) { G.walkPath = []; G.walkTarget = null; }
   $("#" + id).classList.add("active");
 }
 function clearHeldKeys() {
@@ -72,9 +73,9 @@ function saveRecord(stageId, rec) {
   all[stageId].push(rec);
   localStorage.setItem("dn_records", JSON.stringify(all));
 }
-function bestRecord(stageId) {
+function bestRecord(stageId, mode = selectedMode) {
   const list = loadRecords()[stageId] || [];
-  const passes = list.filter(r => r.pass);
+  const passes = list.filter(r => r.pass && (r.mode || "practice") === mode);
   if (!passes.length) return null;
   return passes.reduce((a, b) => (b.score > a.score ? b : a));
 }
@@ -83,6 +84,8 @@ function bestRecord(stageId) {
 let G = null;
 let loopId = null;
 const keys = {};
+let selectedMode = "practice";
+function isExam() { return G && G.mode === "exam"; }
 
 // ---------------- タイトル / ステージ選択 ----------------
 function renderStageSelect() {
@@ -92,14 +95,16 @@ function renderStageSelect() {
     const card = document.createElement("div");
     card.className = "stage-card" + (st.unlocked ? "" : " locked");
     if (st.unlocked) card.tabIndex = 0;
-    const best = st.unlocked ? bestRecord(st.id) : null;
+    const modeRecords = st.unlocked ? [["practice", "練習"], ["exam", "実力確認"]].map(([mode, label]) => {
+      const best = bestRecord(st.id, mode);
+      return best ? `<div class="best">★${label} 合格済み / ベスト${best.score}点</div>` : "";
+    }).join("") : "";
     const plays = (loadRecords()[st.id] || []).length;
     card.innerHTML = `
       <div class="num">STAGE ${st.num}</div>
       <div class="name">${esc(st.title)}</div>
       <div class="sub">${esc(st.subtitle)}${st.unlocked ? "" : "(準備中)"}</div>
-      ${best ? `<div class="best">★合格済み ベスト${best.score}点 / プレイ${plays}回</div>`
-             : (plays ? `<div class="best" style="color:var(--dim)">プレイ${plays}回(未合格)</div>` : "")}
+      ${modeRecords}${plays ? `<div class="sub">合計プレイ${plays}回</div>` : ""}
     `;
     if (st.unlocked) {
       card.onclick = () => startBriefing(st);
@@ -138,17 +143,24 @@ function startBriefing(stage) {
   box.innerHTML = `<h2>STAGE ${stage.num} ${esc(stage.title)}</h2>` +
     stage.briefing.map(l => `<p>${linkTerms(l)}</p>`).join("") +
     `<p style="color:var(--accent)">目標:${linkTerms(stage.goalText)}</p>` +
-    `<div class="footer"><button id="brief-start" class="primary">現場に入る</button>
+    `<fieldset class="mode-choice"><legend>遊び方を選ぶ</legend>
+      <label><input type="radio" name="play-mode" value="practice" ${selectedMode === "practice" ? "checked" : ""}> 練習 — 次の測定箇所とヒントあり</label>
+      <label><input type="radio" name="play-mode" value="exam" ${selectedMode === "exam" ? "checked" : ""}> 実力確認 — 測定箇所・レンジを自分で選ぶ。導通の結果も自分で判断</label>
+      <small>記録はモード別。実力確認でも図面・用語・チェックリストを参照できます。</small></fieldset>
+    <div class="footer"><button id="brief-start" class="primary">現場に入る</button>
      <button id="brief-back">戻る</button></div>`;
   show("screen-brief");
-  $("#brief-start").onclick = () => startStage(stage);
+  $("#brief-start").onclick = () => { selectedMode = $("input[name=play-mode]:checked").value; startStage(stage); };
   $("#brief-back").onclick = () => { renderStageSelect(); show("screen-select"); };
   setTimeout(() => $("#brief-start").focus(), 0);
 }
 
 function startStage(stage) {
+  $("#probe-a").replaceChildren();
+  $("#probe-b").replaceChildren();
   G = {
-    stage, stageId: stage.id,
+    stage, stageId: stage.id, mode: selectedMode, walkPath: [], walkTarget: null,
+    onboarding: selectedMode === "practice" && !localStorage.getItem("dn_intro_complete"),
     startTime: Date.now(),
     score: 100,
     player: { x: MAP_DEF.playerStart.x * MAP_DEF.tile + 6, y: MAP_DEF.playerStart.y * MAP_DEF.tile + 6, dir: "up" },
@@ -194,13 +206,15 @@ function startStage(stage) {
   }
   Veteran.resetCounts();
   logAction("現場に入った", null);
-  $("#hud-stage-name").textContent = `STAGE ${stage.num} ${stage.title}`;
+  $("#hud-stage-name").textContent = `STAGE ${stage.num} ${stage.title} · ${isExam() ? "実力確認" : "練習"}`;
   show("screen-game");
   closeAllModals();
   if (!localStorage.getItem("dn_tutorial_seen")) {
     openTutorial();
     localStorage.setItem("dn_tutorial_seen", "1");
   }
+  renderDestinations();
+  updateOnboarding();
   startLoop();
 }
 
@@ -342,6 +356,11 @@ function drawMap() {
   // 配置物
   for (const o of MAP_DEF.objects) {
     const r = objRect(o);
+    if (G && G.onboarding && o.id === "tools" && !(G.inventory.tester && G.inventory.pen)) {
+      ctx.strokeStyle = "#ffe274"; ctx.lineWidth = 4;
+      ctx.strokeRect(r.x - 3, r.y - 3, r.w + 6, r.h + 6);
+      ctx.lineWidth = 1;
+    }
     ctx.fillStyle = o.color;
     ctx.fillRect(r.x + 2, r.y + 2, r.w - 4, r.h - 4);
     ctx.strokeStyle = "#00000055";
@@ -525,15 +544,18 @@ function startLoop() {
       if (keys["ArrowDown"] || keys["s"]) dy += sp;
       if (keys["ArrowLeft"] || keys["a"]) dx -= sp;
       if (keys["ArrowRight"] || keys["d"]) dx += sp;
+      if (dx || dy) { G.walkPath = []; G.walkTarget = null; }
+      else stepWalk();
       if (dx && !collides(G.player.x + dx, G.player.y)) G.player.x += dx;
       if (dy && !collides(G.player.x, G.player.y + dy)) G.player.y += dy;
       const near = nearbyObject();
       const hint = $("#interact-hint");
       if (near) {
         hint.style.display = "block";
-        hint.textContent = `[スペース] ${near.label} を調べる`;
+        hint.textContent = `[スペース / 調べる] ${near.label}`;
       } else hint.style.display = "none";
     }
+    $("#touch-interact").disabled = !G || !nearbyObject() || anyModalOpen();
     drawMap();
     if (G) $("#hud-time").textContent = fmtTime((Date.now() - G.startTime) / 1000);
   };
@@ -543,6 +565,7 @@ function startLoop() {
 
 document.addEventListener("keydown", (e) => {
   keys[e.key] = true;
+  if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","w","a","s","d"].includes(e.key) && G && !anyModalOpen() && $("#screen-game").classList.contains("active")) e.preventDefault();
 
   // 入力欄・プルダウン操作中はナビ無効(テキスト入力・線番選択を優先)
   const typing = document.activeElement &&
@@ -586,6 +609,8 @@ document.addEventListener("keydown", (e) => {
   }
 });
 document.addEventListener("keyup", (e) => { keys[e.key] = false; });
+window.addEventListener("blur", stopWalking);
+document.addEventListener("visibilitychange", () => { if (document.hidden) stopWalking(); });
 
 // ステージ選択グリッド: 2列を上下左右で移動、Enterで選択
 function handleStageGridNav(e) {
@@ -883,18 +908,21 @@ function openInteract(obj) {
 function menuTools() {
   const items = [];
   if (!G.inventory.tester) {
-    items.push({ label: "テスターを取る", fn: () => { G.inventory.tester = true; Sfx.pickup(); logAction("テスターを取った", "getTools"); toast("テスターを手に入れた"); checkToolsLog(); } });
+    items.push({ label: "テスターを取る", fn: () => { G.inventory.tester = true; Sfx.pickup(); logAction("テスターを取った", null); toast("テスターを手に入れた"); checkToolsLog(); } });
   } else if (G.testerBroken) {
     items.push({ label: "予備のテスターを取る", fn: () => { G.testerBroken = false; Sfx.pickup(); logAction("予備のテスターを取った", null); toast("予備のテスターを手に入れた。今度は大事に使えよ…"); } });
   }
   if (!G.inventory.pen) {
-    items.push({ label: "ペンを取る", fn: () => { G.inventory.pen = true; Sfx.pickup(); logAction("ペンを取った", "getTools"); toast("ペンを手に入れた(確認箇所は図面に自動で記録される)"); checkToolsLog(); } });
+    items.push({ label: "ペンを取る", fn: () => { G.inventory.pen = true; Sfx.pickup(); logAction("ペンを取った", null); toast("ペンを手に入れた(確認箇所は図面に自動で記録される)"); checkToolsLog(); } });
   }
   if (!items.length) items.push({ label: "(必要なものは揃っている)", fn: null });
   showMenu("工具置き場", "作業に必要な道具が置いてある。", items);
 }
 function checkToolsLog() {
-  // getTools は両方揃ったら1回だけモデル対応
+  if (G.inventory.tester && G.inventory.pen && !G.actionLog.some(l => l.modelId === "getTools")) logAction("テスターとペンの準備完了", "getTools");
+  updateChecklist();
+  updateOnboarding();
+  menuTools();
 }
 
 function menuPanel() {
@@ -987,6 +1015,7 @@ function actionMainOn() {
 
 function menuCP() {
   const items = [];
+  if (G.inventory.tester && !G.testerBroken) items.push({ label: "測定へ切り替える", fn: () => openTester() });
   for (const cp of CPS) {
     const on = G.cps[cp.id];
     items.push({
@@ -1024,7 +1053,8 @@ function toggleCP(cpId) {
   if (turningOn) G.cpEverOn[cpId] = true; // 後でOFFに戻してもチェックリストは「済み」のままにする
   Sfx.click();
   G.cpLog.push(`${cpId}${turningOn ? "ON" : "OFF"}`);
-  logAction(`${cpId}を${turningOn ? "ON" : "OFF"}にした`, turningOn ? (G.stageId === "stage1" ? "cpon" : "cpEach") : (G.stageId === "stage1" ? "cpoff" : null));
+  logAction(`${cpId}を${turningOn ? "ON" : "OFF"}にした`, turningOn ? (G.stageId === "stage1" ? "cpon" : "cpEach") : null);
+  if (G.stageId === "stage1" && !turningOn && cpAllOff() && stage1ContDone() && stage1ShortDone() && !pendingMawariPair()) logAction("測定後、全CPをOFFに戻した", "cpoff");
   toast(`カチッ。${cpId}を${turningOn ? "ON" : "OFF"}にした`);
 
   if (G.stageId === "stage2" && turningOn) {
@@ -1240,6 +1270,7 @@ function setProbes(aId, bId) {
 }
 // 測定後に次のペアをプルダウンへ自動セット(案2:自動送り)
 function advanceProbes() {
+  if (isExam()) { updateTesterAuto(); return; }
   const next = nextUnmeasuredPair();
   if (next) {
     setProbes(next.a, next.b);
@@ -1261,6 +1292,10 @@ function updateTesterAuto() {
   const seq = measureSequence();
   if (!seq.length) { area.innerHTML = ""; guide.innerHTML = ""; return; }
   const done = seq.filter(pairMeasured).length;
+  if (isExam()) {
+    guide.textContent = `${measurePhaseLabel()} ${done}/${seq.length} — 図面と測定値を照合して判断してください。`;
+    area.innerHTML = ""; $("#auto-results").innerHTML = ""; return;
+  }
   const pending = G.stageId === "stage1" ? pendingMawariPair() : null;
   const next = nextUnmeasuredPair();
   if (pending) {
@@ -1286,6 +1321,7 @@ function updateTesterAuto() {
 }
 // おまかせ測定(案3:異常が出たら停止してプレイヤーに委ねる)
 function autoMeasureRemaining() {
+  if (isExam()) return;
   const out = $("#tester-result"), an = $("#anomaly-area");
   const log = G.autoLog || (G.autoLog = []);
   let guard = 0;
@@ -1339,6 +1375,10 @@ function renderAutoResults(log) {
 }
 
 function openTester() {
+  if (!G.inventory.tester || G.testerBroken) { toast("工具置き場で使えるテスターを準備しよう", true); return; }
+  closeModal("modal-menu");
+  G.pendingJudgment = null;
+  $("#tester-cp-status").textContent = CPS.map(cp => `${cp.id}: ${G.cps[cp.id] ? "ON" : "OFF"}`).join(" / ");
   const selA = $("#probe-a"), selB = $("#probe-b");
   if (!selA.options.length) {
     for (const t of TERMINALS) {
@@ -1354,7 +1394,7 @@ function openTester() {
   // (CPを切りに行って戻ってきた場合、確認待ちの回り込みペアを優先して呼び戻す)
   const pending = G.stageId === "stage1" ? pendingMawariPair() : null;
   const next = pending || nextUnmeasuredPair();
-  if (next) {
+  if (next && !isExam()) {
     setProbes(next.a, next.b);
     if (!pending && next.range) setRange(next.range);
   }
@@ -1365,6 +1405,138 @@ function setRange(r) {
   G.range = r;
   document.querySelectorAll(".range-row button").forEach(b => b.classList.toggle("sel", b.dataset.range === r));
 }
+
+$("#tester-cp").onclick = () => { closeModal("modal-tester"); menuCP(); };
+
+// In exam mode the reading is shown before its interpretation is committed.
+function renderJudgment() {
+  const area = $("#anomaly-area");
+  area.innerHTML = `<p>この測定結果をどう判断しますか？</p><div class="judgment-actions">
+    <button data-judgment="normal">正常として確認</button>
+    <button data-judgment="abnormal">異常として記録</button>
+    <button data-judgment="investigate">切り分けて再測定</button></div>`;
+  area.querySelectorAll("button").forEach(button => {
+    button.onclick = () => {
+      const pending = G.pendingJudgment;
+      if (!pending) return;
+      const { a, b, r } = pending;
+      const choice = button.dataset.judgment;
+      logAction(`${a.label} - ${b.label}: ${button.textContent}`, null);
+      if (choice === "investigate") {
+        G.pendingJudgment = null;
+        area.textContent = "必要な回路操作や測定を行い、結果を比べてください。";
+        return;
+      }
+      if (r.blocked || (choice === "normal" && r.anomaly)) {
+        missLight(`judgment:${a.id}:${b.id}:${choice}`, "確認条件または判定を見直す必要がある");
+        return;
+      }
+      G.pendingJudgment = null;
+      area.innerHTML = "";
+      if (choice === "abnormal") {
+        const anomaly = r.anomaly || { desc: `${a.label} - ${b.label} を異常と判断 (${r.text})`, defect: null, kind: "normal-reading" };
+        applyOhmResult(a, b, { ...r, anomaly }, area);
+        G.pendingAnomaly = { ...anomaly, contNet: a.net === b.net ? a.net : null };
+        recordAnomaly();
+      } else {
+        applyOhmResult(a, b, r, area);
+        toast("測定と判断を記録しました");
+        updateTesterAuto();
+      }
+    };
+  });
+}
+
+function updateOnboarding() {
+  const guide = $("#onboarding");
+  if (!G || !G.onboarding) { guide.hidden = true; return; }
+  guide.hidden = false;
+  if (!G.inventory.tester || !G.inventory.pen) {
+    guide.textContent = "まず工具を準備しよう。黄色い枠の工具置き場を選び、テスターとペンを取ります。";
+  } else if (!G.zumenOpened) {
+    guide.textContent = "道具がそろいました。上の［図面］で配線と必要なCPを確認しよう。";
+  } else {
+    guide.textContent = "準備完了！ チェックリストを確認して制御盤へ。困ったらベテランに相談できます。";
+    G.onboarding = false;
+    localStorage.setItem("dn_intro_complete", "1");
+  }
+}
+
+function stopWalking() {
+  clearHeldKeys();
+  if (G) { G.walkPath = []; G.walkTarget = null; }
+}
+function canWalk() {
+  return G && $("#screen-game").classList.contains("active") && !G.fireAnim && !anyModalOpen() && !$("#smoke-overlay").classList.contains("active");
+}
+function walkToObject(object) {
+  if (!canWalk()) return;
+  const r = objRect(object);
+  const goal = (x, y) => {
+    const px = x + 14, py = y + 14;
+    return px > r.x-24 && px < r.x+r.w+24 && py > r.y-24 && py < r.y+r.h+24;
+  };
+  const path = findWalkPath(G.player, goal, collides, canvas.width, canvas.height);
+  if (!path) { toast("そこへは移動できません。別の位置から試してください。"); return; }
+  stopWalking();
+  G.walkPath = path;
+  G.walkTarget = object;
+}
+function stepWalk() {
+  const next = G.walkPath[0];
+  if (next) {
+    const dx = Math.max(-3, Math.min(3, next.x-G.player.x));
+    const dy = Math.max(-3, Math.min(3, next.y-G.player.y));
+    if (collides(G.player.x+dx, G.player.y+dy)) { stopWalking(); return; }
+    G.player.x += dx; G.player.y += dy;
+    if (G.player.x === next.x && G.player.y === next.y) G.walkPath.shift();
+  } else if (G.walkTarget) {
+    const target = G.walkTarget;
+    G.walkTarget = null;
+    openInteract(target);
+  }
+}
+function renderDestinations() {
+  const area = $("#destinations");
+  area.replaceChildren();
+  for (const object of MAP_DEF.objects.filter(o => o.interact)) {
+    const button = document.createElement("button");
+    button.className = "small";
+    button.textContent = object.label;
+    button.onclick = () => walkToObject(object);
+    area.appendChild(button);
+  }
+}
+canvas.addEventListener("click", event => {
+  if (!canWalk()) return;
+  const bounds = canvas.getBoundingClientRect();
+  const x = (event.clientX-bounds.left)*canvas.width/bounds.width;
+  const y = (event.clientY-bounds.top)*canvas.height/bounds.height;
+  const object = MAP_DEF.objects.find(o => {
+    const r = objRect(o);
+    return o.interact && x >= r.x && x <= r.x+r.w && y >= r.y && y <= r.y+r.h;
+  });
+  if (object) walkToObject(object);
+});
+document.querySelectorAll("[data-move]").forEach(button => {
+  button.addEventListener("pointerdown", event => {
+    if (!canWalk()) return;
+    event.preventDefault();
+    stopWalking();
+    const [dx,dy] = { ArrowLeft:[-3,0], ArrowRight:[3,0], ArrowUp:[0,-3], ArrowDown:[0,3] }[button.dataset.move];
+    if (!collides(G.player.x+dx,G.player.y+dy)) { G.player.x+=dx; G.player.y+=dy; }
+    keys[button.dataset.move] = true;
+    button.setPointerCapture(event.pointerId);
+  });
+  for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) button.addEventListener(type, () => { keys[button.dataset.move] = false; });
+  // Keyboard/assistive activation moves one small step as well.
+  button.addEventListener("click", event => {
+    if (event.detail !== 0 || !canWalk()) return;
+    const [dx,dy] = { ArrowLeft:[-10,0], ArrowRight:[10,0], ArrowUp:[0,-10], ArrowDown:[0,10] }[button.dataset.move];
+    if (!collides(G.player.x+dx,G.player.y+dy)) { G.player.x+=dx; G.player.y+=dy; }
+  });
+});
+$("#touch-interact").onclick = () => { if (canWalk()) { const object = nearbyObject(); if (object) openInteract(object); } };
 document.querySelectorAll(".range-row button").forEach(b => b.onclick = () => setRange(b.dataset.range));
 
 $("#btn-measure").onclick = () => doMeasure();
@@ -1378,6 +1550,7 @@ function doMeasure() {
   const anomalyArea = $("#anomaly-area");
   anomalyArea.innerHTML = "";
   G.pendingAnomaly = null;
+  G.pendingJudgment = null;
 
   if (a.id === b.id) { out.innerHTML = `--- <span class="sub">同じ端子に2本当てても意味がないぞ</span>`; return; }
 
@@ -1507,10 +1680,19 @@ function measureOhm(a, b, out, anomalyArea) {
 
   const r = resolveOhm(a, b);
   if (r.beep) Sfx.beep();
-  out.innerHTML = `${esc(r.text)}${r.note ? `<span class="sub">${esc(r.note)}</span>` : ""}`;
+  out.innerHTML = `${esc(r.text)}${r.note && !isExam() ? `<span class="sub">${esc(r.note)}</span>` : ""}`;
   logAction(`Ωレンジ測定: ${a.label} - ${b.label} → ${r.text}`, null);
   G.pendingBlocked = null;
 
+  if (isExam()) {
+    G.pendingJudgment = { a, b, r };
+    renderJudgment();
+    return r;
+  }
+  return applyOhmResult(a, b, r, anomalyArea);
+}
+
+function applyOhmResult(a, b, r, anomalyArea) {
   // CP未投入で測れない: 完了扱いにしない・記録もさせない
   if (r.blocked) {
     G.pendingBlocked = r.blocked;
@@ -1743,7 +1925,7 @@ function updateChecklist() {
       [stage1ContDone(), `同一線番の導通確認(Step4〜7) ${contCount}/${S1_CONT_NETS.length}`],
       [shortCount === S1_SHORT_PAIRS.length, `異線番の短絡確認(Step8) ${shortCount}/${S1_SHORT_PAIRS.length}`],
       [eCount === S1_E_PAIRS.length, `電源線とE間の確認(Step9) ${eCount}/${S1_E_PAIRS.length}`],
-      [cpAllOff() && G.cpLog.length > 0, "CPを全てOFFに戻す(Step11)"],
+      [cpAllOff() && G.actionLog.some(l => l.modelId === "cpoff"), "CPを全てOFFに戻す(Step11)"],
     ];
     if (stage1ContDone() && stage1ShortDone() && !G.missOnce["cpContDone"]) {
       G.missOnce["cpContDone"] = true;
@@ -1768,6 +1950,7 @@ function updateChecklist() {
 // ---------------- 図面 ----------------
 function openZumen() {
   G.zumenOpened = true;
+  updateOnboarding();
   if (!G.actionLog.some(l => l.modelId === "openZumen")) logAction("図面を確認した", "openZumen");
   const isS2 = G.stageId === "stage2";
   // ヘッダーをステージに合わせる
@@ -1921,6 +2104,7 @@ function submitReport(problems) {
 
 // 誤記録した時の解説(kind別)
 const FALSE_REPORT_LESSON = {
+  "normal-reading": "図面どおりの正常な測定値を異常として記録した。端子の組み合わせと期待する値を照合しよう。",
   mawarikomi: "電源やコイルを経由した「回り込み」で見えた抵抗値。CPをOFFにして測り直すと消える正常な値で、短絡ではない。",
   "cp-off": "その回路はCPを経由している。CPがOFFだと導通しないのは当然で、不良ではない。CPをONにしてから測る。",
 };
@@ -1937,7 +2121,7 @@ function finishStage(pass, reasons, missedDefects) {
   };
   saveRecord(G.stageId, {
     date: new Date().toISOString().slice(0, 10),
-    pass, score: G.score, timeSec, misses, npcCalls: G.npcCalls
+    pass, mode: G.mode, score: G.score, timeSec, misses, npcCalls: G.npcCalls
   });
 
   if (pass) Sfx.pass(); else Sfx.fail();
@@ -1945,7 +2129,7 @@ function finishStage(pass, reasons, missedDefects) {
   const box = $("#result-box");
   let html = `<h2 class="${pass ? "pass" : "fail"}">${pass ? "合格!" : "不合格…"}</h2>`;
   html += `<div class="result-stats">
-    <span>スコア: ${G.score}点</span><span>時間: ${fmtTime(timeSec)}</span>
+    <span>${isExam() ? "実力確認" : "練習"}</span><span>スコア: ${G.score}点</span><span>時間: ${fmtTime(timeSec)}</span>
     <span>ミス: 軽${misses.light} / 中${misses.mid} / 大${misses.big}</span>
     <span>ベテランに聞いた回数: ${G.npcCalls}回</span>
   </div>`;
@@ -1978,7 +2162,7 @@ function finishStage(pass, reasons, missedDefects) {
     <table class="compare-table"><tr><th style="width:42%">模範手順</th><th style="width:30%">あなたの操作</th><th>コメント</th></tr>`;
   let lastT = -1; let orderNote = false;
   for (const step of G.stage.modelProcedure) {
-    const hit = G.actionLog.find(l => l.modelId === step.id);
+    const hit = procedureHit(G.actionLog, step.id);
     let cell, cls;
     if (hit) {
       cls = "did";
@@ -2071,6 +2255,7 @@ function npcStateSummary() {
 }
 
 function openChat() {
+  if (isExam()) { showMenu("実力確認", "このモードではベテランのヒントは使えません。図面と測定結果をもとに判断してください。", []); return; }
   G.npcCalls++;
   logAction("ベテランに話しかけた", null);
   renderChat();
