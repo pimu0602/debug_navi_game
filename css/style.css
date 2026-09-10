@@ -227,3 +227,42 @@ button:focus-visible, .stage-card:focus, .stage-card:focus-visible {
   border: 2px solid var(--line); border-radius: 6px; padding: 8px; font-size: 13px;
 }
 .hint-small { color: var(--dim); font-size: 11px; line-height: 1.6; margin-top: 4px; }
+
+/* Pointer controls and narrow screens share the same game state as the keyboard. */
+.screen { overflow-y: auto; }
+#hud, #map-wrap, #onboarding, #destinations { width: 100%; max-width: 804px; flex-shrink: 0; }
+#hud { flex-wrap: wrap; }
+#map { width: 100%; height: auto; touch-action: manipulation; cursor: pointer; }
+#onboarding { margin: 8px 0; padding: 10px; border: 1px solid var(--accent); color: #ffe292; background: #302b1d; font-size: 14px; line-height: 1.6; }
+#touch-controls { display: flex; gap: 8px; padding: 10px 0; flex-shrink: 0; }
+#touch-controls button { min-width: 44px; min-height: 44px; touch-action: none; user-select: none; }
+#destinations { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 16px; }
+#destinations button { min-height: 44px; }
+.mode-choice { border: 1px solid var(--line); padding: 12px; margin: 12px 0; }
+.mode-choice label { display: block; padding: 8px 0; cursor: pointer; line-height: 1.6; }
+.mode-choice input { width: 18px; height: 18px; vertical-align: middle; }
+.mode-choice small { display: block; color: var(--dim); }
+.work-switch { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.work-switch span { font-size: 13px; }
+.judgment-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+button:disabled { opacity: .5; cursor: default; }
+@media (max-width: 700px) {
+  .stage-grid { grid-template-columns: 1fr; width: 100%; }
+  .screen { padding: 10px; }
+  .brief-box { padding: 16px; overflow-y: auto; }
+  #hud .stage-name { width: 100%; }
+  #hud .spacer { display: none; }
+  #hud button { min-height: 44px; }
+  #interact-hint { max-width: 96%; width: max-content; white-space: normal; font-size: 12px; padding: 4px 8px; bottom: 4px; }
+  .modal { padding: 14px; width: 96%; }
+  .tester-body { padding: 10px; }
+  .tester-display { font-size: 21px; overflow-wrap: anywhere; }
+  .probe-row select { max-width: 100%; }
+  .range-row button { flex: 1 1 42%; padding: 10px 6px; }
+  .result-box { padding: 14px; width: 100%; }
+  .compare-table th, .compare-table td { padding: 5px 3px; overflow-wrap: anywhere; }
+  .zumen-table { font-size: 11px; }
+  #chat-input-row { flex-wrap: wrap; }
+  #chat-input { min-width: 0; }
+  .auto-row { flex-wrap: wrap; }
+}

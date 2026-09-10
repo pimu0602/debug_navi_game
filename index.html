@@ -8,7 +8,7 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>デバッグナビ(仮称)- 装置立ち上げシミュレーション</title>
-<link rel="stylesheet" href="css/style.css?v=20260723">
+<link rel="stylesheet" href="css/style.css?v=20260906">
 </head>
 <body>
 <div id="app">
@@ -48,10 +48,13 @@
       <button class="small" id="btn-quit">中断</button>
       <span class="time" id="hud-time">0:00</span>
     </div>
+    <p id="onboarding" role="status" hidden></p>
     <div id="map-wrap">
-      <canvas id="map"></canvas>
+      <canvas id="map" aria-label="工場マップ。機器をクリック・タップすると移動します"></canvas>
       <div id="interact-hint"></div>
     </div>
+    <div id="touch-controls" aria-label="移動操作"><button data-move="ArrowLeft" aria-label="左へ移動">←</button><button data-move="ArrowUp" aria-label="上へ移動">↑</button><button data-move="ArrowDown" aria-label="下へ移動">↓</button><button data-move="ArrowRight" aria-label="右へ移動">→</button><button id="touch-interact">調べる</button></div>
+    <div id="destinations" aria-label="移動先"></div>
   </div>
 
   <!-- ===== 結果 ===== -->
@@ -73,7 +76,7 @@
 <!-- ===== テスター ===== -->
 <div class="overlay" id="modal-tester">
   <div class="modal">
-    <h3>テスター(端子台測定)</h3>
+    <h3>テスター(端子台測定)</h3><div class="work-switch"><button id="tester-cp">CP操作へ切り替える</button><span id="tester-cp-status"></span></div>
     <div class="tester-body">
       <div class="tester-display" id="tester-result"></div>
       <div class="range-row">
@@ -84,9 +87,9 @@
         <button data-range="amp">A 電流</button>
       </div>
       <div class="probe-row">
-        <span style="color:#e08080;font-size:12px">赤棒</span>
+        <label for="probe-a" style="color:#e08080;font-size:12px">赤棒</label>
         <select id="probe-a" class="probe-red"></select>
-        <span style="color:#aaa;font-size:12px">黒棒</span>
+        <label for="probe-b" style="color:#aaa;font-size:12px">黒棒</label>
         <select id="probe-b" class="probe-black"></select>
         <button id="btn-measure" class="primary">測定</button>
       </div>
@@ -170,8 +173,8 @@
   <div class="modal">
     <h3>あそびかた</h3>
     <div class="desc" style="font-size:14px">
-      ▶ <b>移動</b>: 矢印キー または WASD<br>
-      ▶ <b>調べる/操作する</b>: 機器に近づいて スペースキー<br>
+      ▶ <b>移動</b>: 矢印キー / WASD / 画面の矢印ボタン。機器のクリック・タップでも移動<br>
+      ▶ <b>調べる/操作する</b>: 機器に近づいて スペースキー または[調べる]。機器を選ぶと到着後に開く<br>
       ▶ <b>図面</b>: 画面上部の[図面]ボタンでいつでも確認できる<br>
       ▶ <b>テスター</b>: 工具置き場で入手 → 制御盤の端子台で測定<br>
       ▶ <b>困ったら</b>: 左下の休憩スペースにいるベテランに聞く<br>
@@ -196,10 +199,11 @@
 <div id="toast-area"></div>
 <div id="term-pop"></div>
 
-<script src="js/data.js?v=20260723"></script>
-<script src="js/stages.js?v=20260723"></script>
-<script src="js/audio.js?v=20260723"></script>
-<script src="js/npc.js?v=20260723"></script>
-<script src="js/game.js?v=20260723"></script>
+<script src="js/data.js?v=20260906"></script>
+<script src="js/stages.js?v=20260906"></script>
+<script src="js/audio.js?v=20260906"></script>
+<script src="js/npc.js?v=20260906"></script>
+<script src="js/navigation.js?v=20260906"></script>
+<script src="js/game.js?v=20260906"></script>
 </body>
 </html>
