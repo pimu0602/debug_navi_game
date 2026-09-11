@@ -16,6 +16,14 @@
 #plan-actor { position:absolute;left:82%;top:78%;font-size:28px; transform:translate(-50%,-50%); }
 #plan-meter { position:absolute;left:12px;bottom:10px;background:#111c12;color:#b6eb80;padding:5px 12px;font-size:20px; }
 .plan-controls { display:flex;align-items:center;flex-wrap:wrap;gap:6px; }
+.plan-status { display:flex;flex-wrap:wrap;gap:10px;padding:12px;background:var(--panel);margin-bottom:10px; }
+.plan-status>span { padding:5px 9px;border:1px solid var(--line);border-radius:4px; }
+.plan-switch b { color:var(--dim); }.plan-switch.on { border-color:var(--accent); }.plan-switch.on b { color:var(--accent); }
+.plan-drawing { margin:12px 0;padding:12px;border:1px solid var(--line);border-radius:5px; }
+.plan-drawing summary { cursor:pointer;color:var(--accent); }.plan-drawing ul { padding-left:20px; }
+.plan-circuit { padding:12px;background:#121922;line-height:2.3;overflow-wrap:anywhere; }
+.plan-circuit span { display:inline-block;padding:2px 6px;border-bottom:3px solid var(--blue); }
+.plan-cause { margin-top:12px;padding:12px;border:1px solid #ef754e; }.plan-cause .plan-circuit span { border-color:#ef754e; }.plan-damage { color:#ffa080; }
 .plan-burning { border-color:#ef754e; box-shadow:inset 0 0 60px #a7382855; }
 .plan-fire { position:absolute;font-size:32px;line-height:1;pointer-events:none;animation:plan-smoke 1.8s ease-in-out infinite alternate; }
 .plan-fire.panel { right:4%;top:3%;width:76px;height:60px;display:flex;align-items:center;justify-content:center;white-space:nowrap;background:radial-gradient(ellipse,#ff802b66,transparent 70%); }.plan-fire.meter { left:10px;bottom:5px; }

@@ -2,6 +2,27 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const rules = require('../js/work-plan.js');
 const valid={prep:'both',safety:'measure',cp:'needed'};
+test('visible settings follow isolation, final checks and cleanup',()=>{
+ let state=rules.emptyState();
+ for(const step of rules.initial({...valid,range:'ohm'}))state=rules.viewState(state,step);
+ assert.equal(state.main,false);assert.equal(state.cp1,true);assert.equal(state.cp2,true);
+ assert.equal(state.range,'Ω');assert.equal(state.probes,'P盤側 ↔ 0V盤側');
+ state=rules.viewState(state,rules.judge('isolate',false)[0]);
+ assert.equal(state.cp2,false);assert.equal(state.reading,'0L（導通なし）');
+ for(const step of rules.conclude('normal',false))state=rules.viewState(state,step);
+ assert.equal(state.cp2,true);assert.equal(state.probes,'未接続');
+ state=rules.viewState(state,rules.cleanup('off')[0]);
+ assert.ok(!state.main&&!state.cp1&&!state.cp2&&!state.cp3);
+});
+test('restoring a decision snapshot removes energized and damaged state',()=>{
+ let state=rules.emptyState();
+ for(const step of rules.initial({...valid,range:'ohm'},true))state=rules.viewState(state,step);
+ const saved={...state};
+ for(const step of rules.judge('power',true))state=rules.viewState(state,step);
+ assert.equal(state.main,true);assert.equal(state.reading,'故障');
+ state=rules.viewState(state,{state:saved,reading:saved.reading});
+ assert.deepEqual(state,saved);assert.equal(state.main,false);assert.equal(state.reading,'0.1 Ω');
+});
 test('energizing during resistance measurement produces damage in both scenarios',()=>{
  for(const shorted of [true,false]){
   const steps=rules.initial({...valid,safety:'power'},shorted);
