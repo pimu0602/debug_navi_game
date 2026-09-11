@@ -2,6 +2,27 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const rules = require('../js/work-plan.js');
 const valid={prep:'both',safety:'measure',cp:'needed'};
+test('energizing during resistance measurement produces damage in both scenarios',()=>{
+ for(const shorted of [true,false]){
+  const steps=rules.initial({...valid,safety:'power'},shorted);
+  assert.equal(steps.at(-2).reading,'主電源 ON');
+  assert.ok(steps.at(-1).fire && steps.at(-1).stop);
+  assert.equal(steps.at(-1).effect,shorted?'panel':'meter');
+ }
+});
+test('energizing an unresolved short burns; a normal path does not automatically burn',()=>{
+ for(const phase of ['judge','cleanup']){
+  assert.ok(rules[phase]('power',true).at(-1).fire);
+  assert.ok(!rules[phase]('power',false).at(-1).fire);
+  assert.ok(rules[phase]('power',false).at(-1).stop);
+ }
+});
+test('wrong ranges on deenergized wiring stop without a fabricated fire',()=>{
+ for(const range of ['amp','vac']){
+  const result=rules.initial({...valid,range}).at(-1);
+  assert.ok(result.stop);assert.ok(!result.fire);
+ }
+});
 test('incomplete preparation and unsafe plans stop before resistance measurement',()=>{
  for(const a of [{...valid,prep:'tester'},{...valid,safety:'lever'},{...valid,cp:'all'},{...valid,cp:'off'}]){
   const steps=rules.initial(a);
