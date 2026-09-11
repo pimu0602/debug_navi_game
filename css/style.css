@@ -2,6 +2,24 @@
    デバッグナビ(仮称) スタイル — レトロ工場風
    ============================================================ */
 * { margin: 0; padding: 0; box-sizing: border-box; }
+.screen#screen-plan { justify-content:flex-start; overflow:auto; }
+.plan-box { width:min(100%,850px); line-height:1.7; padding:12px 0 32px; }
+.plan-box h2,.plan-box h3 { color:var(--accent); }
+.plan-box p { margin:10px 0; }
+.plan-question { display:block; margin:22px 0; }
+.plan-question select { display:block; width:100%; padding:12px; margin-top:8px; white-space:normal; }
+.plan-box select { background:var(--panel2); color:var(--text); font:inherit; max-width:100%; }
+.plan-box button { margin:5px; }
+.plan-map { position:relative; height:270px; background:repeating-linear-gradient(0deg,#232832 0px,#232832 29px,#303541 30px); border:2px solid var(--line); margin:15px 0; overflow:hidden; }
+.plan-station { position:absolute; padding:12px; background:var(--panel2); border:2px solid var(--line); }
+.plan-station.tools { left:3%;top:28%; }.plan-station.desk { left:35%;top:44%; }.plan-station.panel { right:4%;top:3%; }
+#plan-actor { position:absolute;left:82%;top:78%;font-size:28px; transform:translate(-50%,-50%); }
+#plan-meter { position:absolute;left:12px;bottom:10px;background:#111c12;color:#b6eb80;padding:5px 12px;font-size:20px; }
+.plan-controls { display:flex;align-items:center;flex-wrap:wrap;gap:6px; }
+#plan-event { background:var(--panel);padding:15px;min-height:130px; }
+#plan-choices { display:flex;flex-wrap:wrap;margin:10px 0; }
+#plan-log { padding-left:25px; }
+@media(max-width:500px){.plan-station{font-size:12px;padding:5px}.plan-question select{font-size:13px}.plan-box h2{font-size:20px}#plan-choices button{width:100%}}
 
 :root {
   --bg: #1a1c22;
