@@ -17,8 +17,8 @@
 #plan-meter { position:absolute;left:12px;bottom:10px;background:#111c12;color:#b6eb80;padding:5px 12px;font-size:20px; }
 .plan-controls { display:flex;align-items:center;flex-wrap:wrap;gap:6px; }
 .plan-burning { border-color:#ef754e; box-shadow:inset 0 0 60px #a7382855; }
-.plan-fire { position:absolute;font-size:52px;pointer-events:none;animation:plan-smoke 1.8s ease-in-out infinite alternate; }
-.plan-fire.panel { right:5%;top:5%; }.plan-fire.meter { left:10px;bottom:5px; }
+.plan-fire { position:absolute;font-size:32px;line-height:1;pointer-events:none;animation:plan-smoke 1.8s ease-in-out infinite alternate; }
+.plan-fire.panel { right:4%;top:3%;width:76px;height:60px;display:flex;align-items:center;justify-content:center;white-space:nowrap;background:radial-gradient(ellipse,#ff802b66,transparent 70%); }.plan-fire.meter { left:10px;bottom:5px; }
 @keyframes plan-smoke { from { transform:translateY(0);opacity:.85; } to { transform:translateY(-15px);opacity:1; } }
 @media(prefers-reduced-motion:reduce){.plan-fire{animation:none}}
 #plan-event { background:var(--panel);padding:15px;min-height:130px; }
