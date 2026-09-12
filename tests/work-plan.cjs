@@ -2,6 +2,17 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const rules = require('../js/work-plan.js');
 const valid={prep:'both',safety:'measure',cp:'needed'};
+test('progress advances through the plan and stops at the actual failed phase',()=>{
+ let phase='preparation';
+ for(const step of rules.initial(valid))phase=rules.phase(phase,step);
+ assert.equal(phase,'judgment');
+ phase=rules.phase(phase,rules.conclude('normal',false).at(-1));
+ assert.equal(phase,'cleanup');
+ assert.equal(rules.phase(phase,rules.cleanup('off')[0]),'complete');
+ phase='preparation';
+ for(const step of rules.initial({...valid,safety:'lever'}))phase=rules.phase(phase,step);
+ assert.equal(phase,'safety');
+});
 test('predictions compare with actual outcomes without changing simulation outcomes',()=>{
  for(const [step,expected] of [[rules.initial(valid).at(-1),'reading'],[rules.initial({...valid,prep:'none'}).at(-1),'stop'],[rules.powerOn(true).at(-1),'damage']]){
   for(const predicted of ['reading','stop','damage']){

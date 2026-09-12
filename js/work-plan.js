@@ -1,5 +1,14 @@
 /* Stage1の判断を短い場面で学ぶ独立モード。自由操作の状態・記録には触れない。 */
 const PlanRules = {
+  phase(previous,step){
+    if(step.done)return 'complete';
+    if(step.decision==='cleanup')return 'cleanup';
+    if(step.decision==='reading'||step.decision==='conclusion')return 'judgment';
+    if(step.state?.probes==='P盤側 ↔ 0V盤側')return 'measurement';
+    if(step.place==='panel'||step.state?.probes==='R−S / S−T / R−T')return 'safety';
+    if(step.place==='tools'||step.place==='desk')return 'preparation';
+    return previous;
+  },
   predictionResult(step,prediction){
     const actual=step.fire?'damage':step.stop?'stop':'reading';
     return {actual,match:actual===prediction};
@@ -63,6 +72,13 @@ const WorkPlan = (() => {
   let actor={x:82,y:78}, target={x:82,y:78}, log=[], lastAnswers={};
   let view=PlanRules.emptyState(), checkpoint=null, initialSteps=[];
   let pendingPrediction=false;
+  let currentPhase='preparation';
+  const phaseNames={preparation:'準備',safety:'無電圧確認',measurement:'測定',judgment:'判断',cleanup:'後始末',complete:'完了'};
+  function renderProgress(step){
+    currentPhase=PlanRules.phase(currentPhase,step);
+    el('#plan-progress').innerHTML=Object.entries(phaseNames).map(([key,label])=>`<li ${key===currentPhase?'aria-current="step"':''}>${label}</li>`).join('');
+    el('#plan-progress-status').textContent=step.done?'完了':step.stop?'ここで停止':step.decision?'あなたの判断を待っています':'再生中';
+  }
   const predictionLabels={reading:'測定結果を判断する場面まで進む',stop:'確認不足などで途中停止する',damage:'機器が故障・発煙する'};
   const positions={tools:{x:18,y:57},desk:{x:46,y:78},panel:{x:78,y:30}};
   const questions=[['prep','準備するものは？',[['tester','テスターだけ'],['none','道具を持たずに現場へ'],['both','テスターとペンを準備し、図面を確認']]],['safety','抵抗測定の前に何をする？',[['lever','レバーのOFF表示だけ確認'],['power','主電源ブレーカーを入れて測定へ'],['measure','レバーOFFと、相間3組の無電圧を実測']]],['cp','導通確認に使うCPは？',[['all','すべてON'],['off','すべてOFFのまま'],['needed','図面に沿ってCP1・CP2だけON']]],['range','導通確認のレンジは？',[['vac','AC電圧レンジ'],['ohm','抵抗（Ω）レンジ'],['amp','電流（A）レンジ']]]];
@@ -86,11 +102,12 @@ const WorkPlan = (() => {
   }
   function play(steps,skip=0){
     actor={x:82,y:78};target={...actor};log=[];
-    view=PlanRules.emptyState();checkpoint=null;pendingPrediction=true;
+    view=PlanRules.emptyState();checkpoint=null;pendingPrediction=true;currentPhase='preparation';
     root.innerHTML=`<div class="plan-box"><h2>あなたの計画をシミュレーション</h2><div class="plan-map" role="img" aria-label="選択した作業をキャラクターが自動実行する簡略工場"><span class="plan-station tools">工具置き場</span><span class="plan-station desk">図面・作業机</span><span class="plan-station panel">制御盤</span><span id="plan-actor" aria-hidden="true">👷</span><output id="plan-meter">測定前</output></div><div class="plan-controls"><button id="plan-pause">一時停止</button><label>再生速度 <select id="plan-speed"><option value="1">1倍</option><option value="2">2倍</option></select></label><button id="plan-edit">計画を選び直す</button><button id="plan-exit">モード選択へ</button></div><section id="plan-event" aria-live="polite"></section><div id="plan-choices"></div><details><summary>実行の記録</summary><ol id="plan-log"></ol></details></div>`;
     el('.plan-controls').insertAdjacentHTML('beforebegin','<div id="plan-status" class="plan-status" aria-label="機器の現在の設定"></div>');
+    el('.plan-box h2').insertAdjacentHTML('afterend','<nav class="plan-progress-wrap" aria-label="作業の進行"><ol id="plan-progress"></ol><span id="plan-progress-status" role="status"></span></nav>');
     el('#plan-event').insertAdjacentHTML('afterend','<div id="plan-reflection" aria-live="polite"></div><div id="plan-cause"></div>'+drawing());
-    for(const step of steps.slice(0,skip)){view=PlanRules.viewState(view,step);if(step.place)actor={...positions[step.place]};log.push(step.title+'（前回と同じため省略）');}
+    for(const step of steps.slice(0,skip)){view=PlanRules.viewState(view,step);currentPhase=PlanRules.phase(currentPhase,step);if(step.place)actor={...positions[step.place]};log.push(step.title+'（前回と同じため省略）');}
     target={...actor};el('#plan-actor').style.left=actor.x+'%';el('#plan-actor').style.top=actor.y+'%';renderState();
     el('#plan-edit').onclick=()=>form();el('#plan-exit').onclick=()=>{stop();startBriefing(stage);};
     el('#plan-pause').onclick=()=>{paused=!paused;el('#plan-pause').textContent=paused?'再生を続ける':'一時停止';};
@@ -99,6 +116,8 @@ const WorkPlan = (() => {
   function next(steps){stop();root.scrollTop=0;queue=steps;index=0;advance();}
   function advance(){
     stop();const s=queue[index++];if(!s)return;
+    renderProgress(s);
+    root.classList.toggle('plan-result',!!(s.stop||s.done));
     if(s.place)target=positions[s.place];
     el('#plan-event').innerHTML=`<h3>${esc(s.title)}</h3><p>${esc(s.detail)}</p>`;
     el('#plan-choices').replaceChildren();
@@ -124,6 +143,7 @@ const WorkPlan = (() => {
   }
   function choices(s){
     let opts=[];
+    el('#plan-reflection').insertAdjacentElement('afterend',el('#plan-choices'));
     if(pendingPrediction && (s.decision||s.stop||s.done)){
       const result=PlanRules.predictionResult(s,lastAnswers.prediction);
       el('#plan-reflection').innerHTML=`<section class="plan-feedback"><h3>${result.match?'予想と一致しました':'予想と違う結果になりました'}</h3><p>あなたの予想：${esc(predictionLabels[lastAnswers.prediction]||'未回答')}</p><p>実際の結果：${esc(predictionLabels[result.actual])}</p><p>${s.fire?'予想が合っていても、機器は損傷しています。次は故障を避ける計画を試しましょう。':'どの操作がこの結果につながったか、実行の記録でも確認できます。'}</p></section>`;
