@@ -16,6 +16,12 @@
 #plan-actor { position:absolute;left:82%;top:78%;font-size:28px; transform:translate(-50%,-50%); }
 #plan-meter { position:absolute;left:12px;bottom:10px;background:#111c12;color:#b6eb80;padding:5px 12px;font-size:20px; }
 .plan-controls { display:flex;align-items:center;flex-wrap:wrap;gap:6px; }
+.plan-prediction { padding:15px;border:1px solid var(--accent);margin:18px 0; }
+.plan-prediction label { display:block;padding:10px 0;cursor:pointer; }
+.plan-prediction input { width:18px;height:18px;vertical-align:middle;accent-color:var(--accent); }
+.plan-prediction small { display:block;color:var(--dim);margin-top:8px; }
+.plan-feedback,.plan-takeaway { margin:12px 0;padding:15px;background:var(--panel);border-left:4px solid var(--blue); }
+.plan-takeaway { border-color:var(--accent); }.plan-takeaway small { color:var(--dim); }
 .plan-status { display:flex;flex-wrap:wrap;gap:10px;padding:12px;background:var(--panel);margin-bottom:10px; }
 .plan-status>span { padding:5px 9px;border:1px solid var(--line);border-radius:4px; }
 .plan-switch b { color:var(--dim); }.plan-switch.on { border-color:var(--accent); }.plan-switch.on b { color:var(--accent); }

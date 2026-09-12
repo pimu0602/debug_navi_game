@@ -2,6 +2,19 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const rules = require('../js/work-plan.js');
 const valid={prep:'both',safety:'measure',cp:'needed'};
+test('predictions compare with actual outcomes without changing simulation outcomes',()=>{
+ for(const [step,expected] of [[rules.initial(valid).at(-1),'reading'],[rules.initial({...valid,prep:'none'}).at(-1),'stop'],[rules.powerOn(true).at(-1),'damage']]){
+  for(const predicted of ['reading','stop','damage']){
+   const result=rules.predictionResult(step,predicted);
+   assert.equal(result.actual,expected);assert.equal(result.match,predicted===expected);
+  }
+ }
+});
+test('reflection distinguishes panel damage, tester damage and final cleanup',()=>{
+ assert.match(rules.lesson(rules.powerOn(true).at(-1),valid),/通電しない/);
+ assert.match(rules.lesson(rules.powerOn(false,true).at(-1),valid),/無電圧/);
+ assert.match(rules.lesson(rules.cleanup('off')[0],valid),/別の確認/);
+});
 test('visible settings follow isolation, final checks and cleanup',()=>{
  let state=rules.emptyState();
  for(const step of rules.initial({...valid,range:'ohm'}))state=rules.viewState(state,step);
