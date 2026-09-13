@@ -146,7 +146,7 @@ function startBriefing(stage) {
     `<fieldset class="mode-choice"><legend>遊び方を選ぶ</legend>
       <label><input type="radio" name="play-mode" value="practice" ${selectedMode === "practice" ? "checked" : ""}> 練習 — 次の測定箇所とヒントあり</label>
       <label><input type="radio" name="play-mode" value="exam" ${selectedMode === "exam" ? "checked" : ""}> 実力確認 — 測定箇所・レンジを自分で選ぶ。導通の結果も自分で判断</label>
-      ${stage.id === 'stage1' ? '<label><input type="radio" name="play-mode" value="plan"> 作業計画 — 選択した手順を自動再生して、結果から判断する</label>' : ''}
+      <label><input type="radio" name="play-mode" value="plan"> 作業計画 — 選択した手順を自動再生して、結果から判断する</label>
       <small>記録はモード別。実力確認でも図面・用語・チェックリストを参照できます。</small></fieldset>
     <div class="footer"><button id="brief-start" class="primary">現場に入る</button>
      <button id="brief-back">戻る</button></div>`;

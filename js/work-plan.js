@@ -1,6 +1,7 @@
 /* Stage1の判断を短い場面で学ぶ独立モード。自由操作の状態・記録には触れない。 */
 const PlanRules = {
   phase(previous,step){
+    if(step.phase)return step.phase;
     if(step.done)return 'complete';
     if(step.decision==='cleanup')return 'cleanup';
     if(step.decision==='reading'||step.decision==='conclusion')return 'judgment';
@@ -14,6 +15,7 @@ const PlanRules = {
     return {actual,match:actual===prediction};
   },
   lesson(step,answers={}){
+    if(step.lesson)return step.lesson;
     if(step.fire)return step.effect==='panel'?'異常を見つけたら、原因を解消するまで通電しない。':'測定レンジと接続方法を確認し、抵抗測定は無電圧で行う。';
     if(step.done)return '切り分けでOFFにしたことと、最後にすべてOFFに戻すことは別の確認。';
     if(answers.prep!=='both')return '測る道具と記録する道具を、作業前にそろえる。';
@@ -72,8 +74,9 @@ const WorkPlan = (() => {
   let actor={x:82,y:78}, target={x:82,y:78}, log=[], lastAnswers={};
   let view=PlanRules.emptyState(), checkpoint=null, initialSteps=[];
   let pendingPrediction=false;
+  let scenario=null;
   let currentPhase='preparation';
-  const phaseNames={preparation:'準備',safety:'無電圧確認',measurement:'測定',judgment:'判断',cleanup:'後始末',complete:'完了'};
+  let phaseNames={preparation:'準備',safety:'無電圧確認',measurement:'測定',judgment:'判断',cleanup:'後始末',complete:'完了'};
   function renderProgress(step){
     currentPhase=PlanRules.phase(currentPhase,step);
     el('#plan-progress').innerHTML=Object.entries(phaseNames).map(([key,label])=>`<li ${key===currentPhase?'aria-current="step"':''}>${label}</li>`).join('');
@@ -86,6 +89,7 @@ const WorkPlan = (() => {
   function stop(){clearInterval(timer);timer=null;}
   function drawing(){return `<details class="plan-drawing"><summary>図面と測定の考え方を見る</summary><p>Stage1・判断用の簡略図（電源変換部などは省略）。これは設計上の経路です。現在の不良箇所は測定して判断します。</p><div class="plan-circuit" aria-label="設計回路：主電源からCP2を経由する回路。Pと0Vの間に正常な負荷経路があります。"><span>主電源</span> → <span>CP2</span> → <span>P / 0Vの回路</span><br>P ── 正常な負荷経路 ── 0V</div><ul><li>CP1：AC100V制御、CP2：DC24V制御、CP3：タッチパネル用。</li><li>主回路の相間3組は、AC電圧レンジで無電圧を確認。</li><li>抵抗測定は無電圧で実施。CPを通る配線は必要なCPをON。</li><li>P−0V間に抵抗値が見えたら、CP2をOFFにして再測定。消えるか残るかを比較。</li><li>全確認後はCPをすべてOFFに戻して報告。</li></ul></details>`;}
   function renderState(){
+    if(scenario){el('#plan-status').innerHTML=`<span>対象：${esc(scenario.data.station)}</span><span>工程：${esc(phaseNames[currentPhase])}</span><span>観察結果：${esc(view.reading)}</span>`;el('#plan-meter').textContent=view.reading.length>18?'観察結果を確認':view.reading;return;}
     el('#plan-status').innerHTML=['main','cp1','cp2','cp3'].map((key,i)=>`<span class="plan-switch ${view[key]?'on':''}">${['主電源','CP1','CP2','CP3'][i]} <b>${view[key]?'ON':'OFF'}</b></span>`).join('')+`<span>レンジ：<b>${esc(view.range)}</b></span><span>測定端子：<b>${esc(view.probes)}</b></span>`;
     el('#plan-meter').textContent=view.reading;
   }
@@ -93,10 +97,17 @@ const WorkPlan = (() => {
     stop(); const answers=lastAnswers;
     root.innerHTML=`<div class="plan-box"><h2>作業計画モード</h2><p>Stage1の要点を抜粋。4問で計画 → 自動再生 → 測定結果から追加判断。</p><p>初期状態：主電源はOFF。配線状態は選び直しても同じです。自由操作のスコアには入りません。</p><form id="plan-form">${questions.map(([id,q,opts])=>`<label class="plan-question">${q}<select required name="${id}"><option value="">選んでください</option>${opts.map(([v,t])=>`<option value="${v}" ${answers[id]===v?'selected':''}>${t}</option>`).join('')}</select></label>`).join('')}<button class="primary">この計画を再生</button></form><button id="plan-back">モード選択へ戻る</button><p>${previous?'前回：'+esc(previous):'結果は実行してから確認します。'}</p></div>`;
     el('#plan-form').insertAdjacentHTML('beforebegin',drawing());
+    if(scenario){
+      el('.plan-box h2').textContent=`STAGE ${stage.num} ${stage.title}・作業計画`;
+      el('.plan-box p:nth-of-type(2)').textContent=scenario.data.start+' 機器の状態は選び直しても同じです。自由操作の成績には入りません。';
+      el('#plan-form').innerHTML=scenario.questions.map(([id,q,opts])=>`<label class="plan-question">${esc(q)}<select required name="${id}"><option value="">選んでください</option>${opts.map(([v,t])=>`<option value="${v}" ${answers[id]===v?'selected':''}>${esc(t)}</option>`).join('')}</select></label>`).join('')+'<button class="primary">この計画を再生</button>';
+      el('.plan-drawing').innerHTML=`<summary>資料と確認の考え方を見る</summary><p>${esc(scenario.data.reference)}</p><p>このモードは工程の要点を抜粋した学習用シナリオです。全項目を実施する自由操作モードとは別です。</p>`;
+    }
     el('#plan-form button').insertAdjacentHTML('beforebegin',`<fieldset class="plan-prediction"><legend>実行前に予想してみよう</legend><p>今選んだ計画の再生は、どうなると思いますか？ その後の追加判断は含みません。</p>${Object.entries(predictionLabels).map(([value,label])=>`<label><input type="radio" name="prediction" value="${value}" required> ${label}</label>`).join('')}<small>予想は成績に入りません。結果と理由を比べてみましょう。</small></fieldset>`);
     if(resume)el('#plan-form').insertAdjacentHTML('beforebegin','<p>選択を直して再生すると、変更前と同じ準備・確認は省略し、変えた操作から再開します。</p>');
-    el('#plan-form').onsubmit=e=>{e.preventDefault();const a=Object.fromEntries(new FormData(e.target));lastAnswers=a;const steps=PlanRules.initial(a,shorted);let skip=0;if(resume)while(skip<steps.length-1 && JSON.stringify(steps[skip])===JSON.stringify(initialSteps[skip]))skip++;initialSteps=steps;play(steps,skip);};
+    el('#plan-form').onsubmit=e=>{e.preventDefault();const a=Object.fromEntries(new FormData(e.target));lastAnswers=a;const steps=(scenario||PlanRules).initial(a,shorted);let skip=0;if(resume)while(skip<steps.length-1 && JSON.stringify(steps[skip])===JSON.stringify(initialSteps[skip]))skip++;initialSteps=steps;play(steps,skip);};
     el('.plan-box p').textContent='Stage1の要点を抜粋。4問で計画 → 自動再生 → 測定結果から追加判断。危険な操作では故障・発煙の演出が入ります。';
+    if(scenario)el('.plan-box p').textContent=`${stage.title}の要点を抜粋。3問で計画 → 結果を予想 → 自動再生 → 観察して判断。`;
     el('#plan-back').onclick=()=>{stop();startBriefing(stage);};
     el('select').focus();
   }
@@ -107,6 +118,7 @@ const WorkPlan = (() => {
     el('.plan-controls').insertAdjacentHTML('beforebegin','<div id="plan-status" class="plan-status" aria-label="機器の現在の設定"></div>');
     el('.plan-box h2').insertAdjacentHTML('afterend','<nav class="plan-progress-wrap" aria-label="作業の進行"><ol id="plan-progress"></ol><span id="plan-progress-status" role="status"></span></nav>');
     el('#plan-event').insertAdjacentHTML('afterend','<div id="plan-reflection" aria-live="polite"></div><div id="plan-cause"></div>'+drawing());
+    if(scenario){el('.plan-box h2').textContent=`STAGE ${stage.num} ${stage.title}`;el('.plan-station.tools').textContent='準備場所';el('.plan-station.desk').textContent='資料・ノートPC';el('.plan-station.panel').textContent=scenario.data.station;el('.plan-drawing').innerHTML=`<summary>資料と確認の考え方を見る</summary><p>${esc(scenario.data.reference)}</p>`;}
     for(const step of steps.slice(0,skip)){view=PlanRules.viewState(view,step);currentPhase=PlanRules.phase(currentPhase,step);if(step.place)actor={...positions[step.place]};log.push(step.title+'（前回と同じため省略）');}
     target={...actor};el('#plan-actor').style.left=actor.x+'%';el('#plan-actor').style.top=actor.y+'%';renderState();
     el('#plan-edit').onclick=()=>form();el('#plan-exit').onclick=()=>{stop();startBriefing(stage);};
@@ -126,9 +138,11 @@ const WorkPlan = (() => {
     view=PlanRules.viewState(view,s);renderState();
     el('#plan-cause').innerHTML=s.fire?`<div class="plan-cause"><strong>故障までの流れ（模式図）</strong><div class="plan-circuit"><span>主電源 ON</span> → <span>${s.effect==='panel'?'CP2 → 未解決の短絡':'通電中の回路 → 不適切なテスター接続'}</span> → <span class="plan-damage">${s.effect==='panel'?'制御盤の損傷':'テスターの損傷'}</span></div><p>赤い経路は今回の故障原因を表します。演出は損傷を表したもので、実機の現象を厳密に再現するものではありません。</p></div>`:'';
     const map=el('.plan-map');
+    if(s.cause)el('#plan-cause').innerHTML=`<div class="plan-cause"><strong>この結果になった理由</strong><div class="plan-circuit">${s.cause.map(t=>`<span>${esc(t)}</span>`).join(' → ')}</div></div>`;
     map.classList.toggle('plan-burning',!!s.fire);
     map.querySelector('.plan-fire')?.remove();
     if(s.fire){const fx=document.createElement('div');fx.className='plan-fire '+s.effect;fx.textContent='🔥 💨';fx.setAttribute('aria-label','発煙・故障の演出');map.appendChild(fx);}
+    if(s.incident){const fx=document.createElement('div');fx.className='plan-fire panel';fx.textContent='⚠';fx.setAttribute('aria-label','異常により中止');map.appendChild(fx);}
     let elapsed=0;
     el('#plan-pause').disabled=false;
     timer=setInterval(()=>{
@@ -151,12 +165,16 @@ const WorkPlan = (() => {
     }
     if(s.stop||s.done)el('#plan-reflection').insertAdjacentHTML('beforeend',`<section class="plan-takeaway"><h3>今回覚えておきたいこと</h3><p>${esc(PlanRules.lesson(s,lastAnswers))}</p><small>今回の場面：${esc(s.title)}</small></section>`);
     if(s.decision)checkpoint={step:{...s},state:{...view}};
+    if(scenario && ['scenario','scenario-confirm'].includes(s.decision)){
+      opts=[['正常として記録',()=>next(scenario.decide('normal',shorted))],['異常として記録して停止',()=>next(scenario.decide('abnormal',shorted))],['追加確認で切り分ける',()=>next(scenario.decide('inspect',shorted))],[scenario.data.danger,()=>next(scenario.decide('danger',shorted))]];
+    }
+    if(scenario && s.decision==='scenario-finish')opts=[[scenario.data.finish,()=>next(scenario.finish('report',shorted))],['記録・最終確認を省いて次へ',()=>next(scenario.finish('skip',shorted))]];
     if(s.decision==='reading')opts=[['正常と判断',()=>next(PlanRules.judge('normal',shorted))],['短絡と判断',()=>next(PlanRules.judge('short',shorted))],['CP2をOFFにして再測定',()=>next(PlanRules.judge('isolate',shorted))]];
     if(s.decision==='reading')opts.push(['主電源ブレーカーを入れて様子を見る',()=>next(PlanRules.judge('power',shorted))]);
     if(s.decision==='conclusion')opts=[['回り込みとして確認',()=>next(PlanRules.conclude('normal',shorted))],['短絡の疑いとして記録',()=>next(PlanRules.conclude('short',shorted))]];
     if(s.decision==='cleanup')opts=[['CPをすべてOFFに戻して報告',()=>next(PlanRules.cleanup('off'))],['このまま報告',()=>next(PlanRules.cleanup('report'))]];
     if(s.decision==='cleanup')opts.push(['主電源ブレーカーを入れる',()=>next(PlanRules.cleanup('power',shorted))]);
-    if(s.stop||s.done){previous=s.title;opts=[['同じ配線状態で選び直す',()=>form()]];if(s.done)opts.push(['別の配線状態に挑戦',()=>{shorted=!shorted;previous=null;form();}]);}
+    if(s.stop||s.done){previous=s.title;opts=[['同じ状態で選び直す',()=>form()]];if(s.done)opts.push(['別の状態に挑戦',()=>{shorted=!shorted;previous=null;form();}]);}
     if(s.stop)opts.unshift(['失敗した判断からやり直す',()=>{
       if(!checkpoint){form(true);return;}
       const saved=checkpoint;paused=false;el('#plan-pause').textContent='一時停止';
@@ -166,7 +184,7 @@ const WorkPlan = (() => {
     opts.forEach(([label,action])=>{const b=document.createElement('button');b.textContent=label;b.onclick=action;el('#plan-choices').appendChild(b);});
     el('#plan-choices button')?.focus({preventScroll:true});
   }
-  return {open(st){stage=st;shorted=Math.random()<0.5;previous=null;root=document.querySelector('#screen-plan');if(!root){root=document.createElement('div');root.id='screen-plan';root.className='screen';document.querySelector('#app').appendChild(root);}show('screen-plan');form();}};
+  return {open(st){stage=st;scenario=PlanScenarios.create(st.id);lastAnswers={};initialSteps=[];checkpoint=null;phaseNames={preparation:"準備",safety:scenario?"事前確認":"無電圧確認",measurement:scenario?"実行":"測定",judgment:"判断",cleanup:scenario?"引き継ぎ":"後始末",complete:"完了"};predictionLabels.reading=scenario?"観察結果を判断する場面まで進む":"測定結果を判断する場面まで進む";shorted=Math.random()<0.5;previous=null;root=document.querySelector('#screen-plan');if(!root){root=document.createElement('div');root.id='screen-plan';root.className='screen';document.querySelector('#app').appendChild(root);}show('screen-plan');form();}};
 })();
 window.WorkPlan=WorkPlan;
 }
