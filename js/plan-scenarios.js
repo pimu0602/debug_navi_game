@@ -14,7 +14,7 @@ const PlanScenarios = (()=>{
  function create(id){
   const d=rows[id];if(!d)return null;
   const failure=(title,detail,extra={})=>({stop:true,title,detail,lesson:d.lesson,...extra});
-  const questions=[['prep','最初の準備は？',[['ready',d.prep],['skip','確認せず作業を始める'],['guess','記憶だけで判断する']]],['method','どの手順で実行する？',[['risky',d.bad],['step',d.action],['skip','操作を省いて確認済みにする']]],['check','結果をどう確認する？',[['skip',d.skip],['observe',d.check],['guess','前回と同じはずなので確認しない']]]];
+  const questions=[['prep','最初の準備は？',[['ready',d.prep],['skip','前工程の記録を確認し、実物の照合は後で行う'],['guess','同型機の資料を使い、実機との差分確認を省く']]],['method','どの手順で実行する？',[['risky',d.bad],['step',d.action],['skip','前工程の実績を使い、今回の実行確認を省く']]],['check','結果をどう確認する？',[['skip',d.skip],['observe',d.check],['guess','前回の記録と作業完了表示だけで判断する']]]];
   return {data:d,questions,
    initial(a,abnormal){
     const steps=[{place:'desk',phase:'preparation',title:d.prep,detail:'選んだ準備を実行します。',state:{main:id!=='stage2',cp1:id!=='stage2',cp2:id!=='stage2',cp3:id!=='stage2',range:'対象確認',probes:d.station,reading:'確認前'}}];
@@ -25,13 +25,14 @@ const PlanScenarios = (()=>{
     if(a.check!=='observe')return [...steps,failure('確認の根拠が足りません',d.check+'ことで判断の根拠を集めましょう。')];
     steps.push({phase:'judgment',title:d.check,detail:abnormal?d.fault:d.good,reading:abnormal?d.fault:d.good,decision:'scenario',lesson:d.lesson});return steps;
    },
-   decide(choice,abnormal){
-    if(choice==='inspect')return [{phase:'judgment',title:d.inspect,detail:abnormal?d.detailFault:d.detailGood,reading:abnormal?d.detailFault:d.detailGood,decision:'scenario-confirm',state:{reading:abnormal?d.detailFault:d.detailGood}}];
+   decide(choice,abnormal,state={}){
+    if(choice==='inspect')return [{phase:'judgment',title:d.inspect,detail:abnormal?d.detailFault:d.detailGood,reading:abnormal?d.detailFault:d.detailGood,decision:'scenario-confirm',state:{inspected:true,forceReleased:id==='stage7',reading:abnormal?d.detailFault:d.detailGood}}];
+    if(choice==='danger' && (state.forceReleased || !abnormal))return [failure('現在の状態を確認しましょう',state.forceReleased?'強制はすでに解除済みです。残留による事故は起きていません。確認した対応関係を根拠に判断しましょう。':'今の観察結果では、この選択肢が前提とする異常は確認されていません。状態に合う判断を選びましょう。')];
     if(choice==='danger')return [{title:d.danger,detail:'あなたの選択を実行します。'},failure('確認を中止しました',d.fire&&!abnormal?'異常は観察されていません。根拠のない再投入を省き、確認結果を記録しましょう。':d.consequence,{fire:!!(d.fire&&abnormal),effect:'panel',incident:!(d.fire&&abnormal),cause:[d.danger,abnormal?'未解決の異常':'確認手順の省略','工程を中止']})];
     if((choice==='abnormal')!==abnormal)return [failure('観察結果と照合しましょう',abnormal?'表示された異常を残したまま先へ進めません。結果を見直して記録してください。':'表示は基準と一致しています。根拠のない異常申告にならないよう再確認しましょう。')];
     return [{phase:'cleanup',title:abnormal?'要対処として記録':'正常として記録',detail:abnormal?'この回の確認はここで止め、未解決の異常を引き継ぎます。':'この判断場面は完了。残りの確認を省略し、引き継ぎ場面へ進みます。',decision:'scenario-finish',state:{reading:abnormal?'要対処・停止':'確認済み'}}];
    },
-   finish(choice,abnormal){if(choice!=='report')return [failure('引き継ぎが完了していません','確認した状態と未解決項目を記録し、必要な解除・停止を確認して報告します。')];return [{done:true,phase:'complete',title:'この工程の計画検証が完了',detail:abnormal?'異常を記録し、停止状態で要対処として報告しました。修理完了を意味するものではありません。':d.finish+'しました。',lesson:d.lesson,state:{reading:abnormal?'要対処として報告':'確認結果を報告'}}];}
+   finish(choice,abnormal){if(choice!=='report')return [failure('引き継ぎが完了していません','確認した状態と未解決項目を記録し、必要な解除・停止を確認して報告します。')];return [{done:true,phase:'complete',title:'この工程の計画検証が完了',detail:abnormal?'異常を記録し、停止状態で要対処として報告しました。修理完了を意味するものではありません。':({stage2:'確認した電圧と表示、現在のCP状態を記録して報告しました。',stage5:'確認した入力と実物の対応を記録して報告しました。',stage9:'この場面の原点位置と完了信号を記録しました。全軸確認は別途必要です。',stage10:'この場面のサイクル結果を記録しました。連続運転確認は別途必要です。'}[id]||'この場面の確認結果と最終状態を記録して報告しました。'),lesson:d.lesson,state:{forceReleased:id==='stage7',reading:abnormal?'要対処として報告':'確認結果を報告'}}];}
   };
  }
  return {create,ids:Object.keys(rows)};

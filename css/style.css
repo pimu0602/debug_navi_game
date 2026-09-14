@@ -6,6 +6,19 @@
 .plan-box { width:min(100%,850px); line-height:1.7; padding:12px 0 32px; }
 .plan-box h2,.plan-box h3 { color:var(--accent); }
 .plan-box p { margin:10px 0; }
+.plan-machine { padding:12px; border:1px solid var(--line); margin:10px 0; background:#141c24; }
+.machine-lights { display:flex;flex-wrap:wrap;gap:12px;margin:10px 0; }
+.machine-lights span { font-size:13px; }.machine-lights i { display:inline-block;width:12px;height:12px;border-radius:50%;background:#45515b;margin-right:5px; }
+.machine-lights .lit i { background:#b6eb80;box-shadow:0 0 10px #b6eb80;animation:lamp-arrive .6s ease-out; }
+.machine-track { position:relative;height:46px;margin:12px 0;background:repeating-linear-gradient(90deg,#24313e 0 28px,#3e5160 29px 30px);overflow:hidden; }
+.machine-part { position:absolute;left:5%;top:6px;padding:2px 12px;background:#d8ad50;color:#161c23;z-index:1; }
+.machine-target { position:absolute;right:6%;top:8px;border:1px dashed #8baa9a;padding:0 4px;font-size:12px; }
+.observed .machine-part { left:70%; }.observed.reverse .machine-part { left:15%; }.observed.animate .machine-part { animation:axis-forward 1.4s ease-out; }.observed.reverse.animate .machine-part { animation:axis-reverse 1.4s ease-out; }
+.plan-comparison { margin:15px 0;padding:12px;border:1px solid var(--line); }.comparison-row { padding:8px;margin:8px 0;background:var(--panel);overflow-wrap:anywhere; }.comparison-row.changed { border-left:4px solid var(--accent); }
+@keyframes lamp-arrive { from {opacity:.2} to {opacity:1} }
+@keyframes axis-forward { from {left:5%} to {left:70%} }
+@keyframes axis-reverse { from {left:45%} to {left:15%} }
+@media(prefers-reduced-motion:reduce){.machine-lights .lit i,.observed .machine-part{animation:none}}
 .plan-question { display:block; margin:22px 0; }
 .plan-question select { display:block; width:100%; padding:12px; margin-top:8px; white-space:normal; }
 .plan-box select { background:var(--panel2); color:var(--text); font:inherit; max-width:100%; }
