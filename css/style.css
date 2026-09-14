@@ -6,6 +6,8 @@
 .plan-box { width:min(100%,850px); line-height:1.7; padding:12px 0 32px; }
 .plan-box h2,.plan-box h3 { color:var(--accent); }
 .plan-box p { margin:10px 0; }
+.plan-supervisor { border-left:4px solid var(--blue);background:var(--panel);padding:12px;margin:12px 0; }
+.plan-supervisor strong { color:var(--blue); }.plan-supervisor button { font-size:13px;min-height:44px; }
 .plan-machine { padding:12px; border:1px solid var(--line); margin:10px 0; background:#141c24; }
 .machine-lights { display:flex;flex-wrap:wrap;gap:12px;margin:10px 0; }
 .machine-lights span { font-size:13px; }.machine-lights i { display:inline-block;width:12px;height:12px;border-radius:50%;background:#45515b;margin-right:5px; }

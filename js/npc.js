@@ -12,7 +12,10 @@ const Veteran = (() => {
 
   function cannedHint(state) {
     const hints = pickHintTopic(state);
-    const key = hints.key;
+    const key = state.stageId + ':' + hints.key;
+    const phase = /report/.test(hints.key) ? 'cleanup' : /tools|zumen|lever/.test(hints.key) ? 'preparation' : /blocked|source|main|cpon/.test(hints.key) ? 'safety' : /inspect|short/.test(hints.key) ? 'judgment' : 'measurement';
+    const extra = Supervisor.hints(state.stageId, phase);
+    hints.levels = hints.levels.map((text, i) => text + '\n' + extra[i % extra.length]).concat(extra);
     askCounts[key] = (askCounts[key] || 0) + 1;
     const depth = Math.min(askCounts[key], hints.levels.length);
     return hints.levels[depth - 1];

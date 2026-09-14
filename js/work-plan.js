@@ -76,6 +76,14 @@ const WorkPlan = (() => {
   let pendingPrediction=false;
   let scenario=null;
   let questionOrder=[], decisions=[], reviewing=false, lastResult=null;
+  function supervisorAdvice(host,phase,context={}){
+    host.replaceChildren();
+    const messages=Supervisor.hints(stage.id,phase,context);let depth=0;
+    const title=document.createElement('strong');title.textContent='上司の助言';host.appendChild(title);
+    const text=document.createElement('p');text.textContent=messages[0];text.setAttribute('aria-live','polite');host.appendChild(text);
+    const button=document.createElement('button');button.type='button';button.textContent='もう少し詳しく聞く';
+    button.onclick=()=>{if(timer){paused=true;const pause=el('#plan-pause');if(pause)pause.textContent='再生を続ける';}depth++;text.textContent=messages[depth];if(depth===messages.length-1){button.disabled=true;button.textContent='この場面の助言はここまで';}};host.appendChild(button);
+  }
   const answerKey=()=>scenario?{prep:'ready',method:'step',check:'observe'}:{prep:'both',safety:'measure',cp:'needed',range:'ohm'};
   function machine(step){
     const host=el('#plan-machine');if(!host)return;
@@ -89,6 +97,7 @@ const WorkPlan = (() => {
     host.innerHTML=`<strong>観察時の機器（模式図）</strong><div class="machine-lights">${lights.map(l=>`<span class="${l.on?'lit':''}"><i></i>${esc(l.label)}：${l.on?'ON':'OFF'}</span>`).join('')}</div>${moving?`<div class="machine-track ${observed?'observed':''} ${animate?'animate':''} ${shorted?'reverse':''}"><span class="machine-part">${stage.id==='stage10'?'ワーク':'軸'}</span><span class="machine-target">目標位置</span></div>`:''}<small>${observed?'表示された観察結果を模式化しています。':'確認前。表示は未確認です。'}</small>`;
   }
   function investigate(s){
+    supervisorAdvice(el('#plan-supervisor'),'judgment',{reading:view.reading});
     el('#plan-choices').replaceChildren();
     const labels=PlanLearning.probes[stage.id];
     const options=[[labels[0],()=>next(scenario?scenario.decide('inspect',shorted,view):PlanRules.judge('isolate',shorted))],[labels[1],()=>next([{title:'この確認だけでは判断できません',detail:'対象の変化や対応関係を確認できていません。別の調査先を選べます。',decision:s.decision,state:{...view}}])],['資料と基準を読み直す',()=>next([{title:'照合する基準',detail:scenario?scenario.data.reference:'CP2を切り離した前後の抵抗値を比較します。消える場合と残る場合を区別します。',decision:s.decision,state:{...view}}])]];
@@ -96,6 +105,7 @@ const WorkPlan = (() => {
     el('#plan-event').innerHTML='<h3>何を調べますか？</h3><p>判断に必要な情報が得られる調査先を選びましょう。</p>';
   }
   function reason(choice,action,s){
+    supervisorAdvice(el('#plan-supervisor'),'judgment',{reading:view.reading});
     el('#plan-choices').replaceChildren();
     el('#plan-event').innerHTML='<h3>その判断の根拠は？</h3><p>今回観察した事実を選んでください。</p>';
     PlanLearning.reasons(stage.id,shorted,scenario?.data).forEach(([id,label])=>{const b=document.createElement('button');b.textContent=label;b.onclick=()=>{
@@ -143,6 +153,8 @@ const WorkPlan = (() => {
     stop(); const answers=lastAnswers;
     root.innerHTML=`<div class="plan-box"><h2>作業計画モード</h2><p>Stage1の要点を抜粋。4問で計画 → 自動再生 → 測定結果から追加判断。</p><p>初期状態：主電源はOFF。配線状態は選び直しても同じです。自由操作のスコアには入りません。</p><form id="plan-form">${(questionOrder.length?questionOrder:questions).map(([id,q,opts])=>`<label class="plan-question">${q}<select required name="${id}"><option value="">選んでください</option>${opts.map(([v,t])=>`<option value="${v}" ${answers[id]===v?'selected':''}>${t}</option>`).join('')}</select></label>`).join('')}<button class="primary">この計画を再生</button></form><button id="plan-back">モード選択へ戻る</button><p>${previous?'前回：'+esc(previous):'結果は実行してから確認します。'}</p></div>`;
     el('#plan-form').insertAdjacentHTML('beforebegin',drawing());
+    el('#plan-form').insertAdjacentHTML('beforebegin','<aside id="plan-supervisor" class="plan-supervisor"></aside>');
+    supervisorAdvice(el('#plan-supervisor'),'preparation');
     if(scenario){
       el('.plan-box h2').textContent=`STAGE ${stage.num} ${stage.title}・作業計画`;
       el('.plan-box p:nth-of-type(2)').textContent=scenario.data.start+' 機器の状態は選び直しても同じです。自由操作の成績には入りません。';
@@ -165,6 +177,7 @@ const WorkPlan = (() => {
     el('.plan-controls').insertAdjacentHTML('beforebegin','<div id="plan-status" class="plan-status" aria-label="機器の現在の設定"></div>');
     el('.plan-box h2').insertAdjacentHTML('afterend','<nav class="plan-progress-wrap" aria-label="作業の進行"><ol id="plan-progress"></ol><span id="plan-progress-status" role="status"></span></nav>');
     el('#plan-event').insertAdjacentHTML('afterend','<div id="plan-reflection" aria-live="polite"></div><div id="plan-cause"></div>'+drawing());
+    el('#plan-event').insertAdjacentHTML('afterend','<aside id="plan-supervisor" class="plan-supervisor"></aside>');
     if(scenario){el('.plan-box h2').textContent=`STAGE ${stage.num} ${stage.title}`;el('.plan-station.tools').textContent='準備場所';el('.plan-station.desk').textContent='資料・ノートPC';el('.plan-station.panel').textContent=scenario.data.station;el('.plan-drawing').innerHTML=`<summary>資料と確認の考え方を見る</summary><p>${esc(scenario.data.reference)}</p>`;}
     for(const step of steps.slice(0,skip)){view=PlanRules.viewState(view,step);currentPhase=PlanRules.phase(currentPhase,step);if(step.place)actor={...positions[step.place]};log.push(step.title+'（前回と同じため省略）');}
     target={...actor};el('#plan-actor').style.left=actor.x+'%';el('#plan-actor').style.top=actor.y+'%';renderState();
@@ -183,6 +196,7 @@ const WorkPlan = (() => {
     el('#plan-reflection').replaceChildren();
     log.push(s.title);el('#plan-log').innerHTML=log.map(t=>`<li>${esc(t)}</li>`).join('');
     view=PlanRules.viewState(view,s);renderState();machine(s);
+    supervisorAdvice(el('#plan-supervisor'),currentPhase,{stop:s.stop,lesson:s.lesson||PlanRules.lesson(s,lastAnswers),reading:s.reading});
     el('#plan-cause').innerHTML=s.fire?`<div class="plan-cause"><strong>故障までの流れ（模式図）</strong><div class="plan-circuit"><span>主電源 ON</span> → <span>${s.effect==='panel'?'CP2 → 未解決の短絡':'通電中の回路 → 不適切なテスター接続'}</span> → <span class="plan-damage">${s.effect==='panel'?'制御盤の損傷':'テスターの損傷'}</span></div><p>赤い経路は今回の故障原因を表します。演出は損傷を表したもので、実機の現象を厳密に再現するものではありません。</p></div>`:'';
     const map=el('.plan-map');
     if(s.cause)el('#plan-cause').innerHTML=`<div class="plan-cause"><strong>この結果になった理由</strong><div class="plan-circuit">${s.cause.map(t=>`<span>${esc(t)}</span>`).join(' → ')}</div></div>`;
